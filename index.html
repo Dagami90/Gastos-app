@@ -28,11 +28,38 @@ table{width:100%;border-collapse:collapse;background:#fff;border-radius:13px;ove
 <div class="section"><h2>Categorías de gasto</h2><div id="settingsCats"></div><button class="secondary" onclick="addCategory()">＋ Añadir categoría</button></div>
 <div class="section"><h2>Conceptos de gasto</h2><div id="settingsConcepts"></div><button class="secondary" onclick="addConcept()">＋ Añadir concepto</button></div>
 <div class="section"><h2>Cuentas de inversión</h2><div id="investmentAccounts"></div></div>
-<div class="section"><h2>Datos</h2><button class="secondary" onclick="restoreBaseData()">↻ Restaurar datos base de septiembre</button></div>
+<div class="section"><h2>Datos y copias de seguridad</h2>
+<div style="display:flex;gap:8px;flex-wrap:wrap">
+<button class="secondary" onclick="exportBackup()">⬇️ Exportar copia</button>
+<button class="secondary" onclick="document.getElementById('importFile').click()">⬆️ Importar copia</button>
+<button class="secondary" onclick="restoreBaseData()">↻ Restaurar datos base</button>
+</div>
+<input id="importFile" type="file" accept="application/json,.json" style="display:none" onchange="importBackup(event)">
+<p class="small">La copia contiene cuentas, movimientos, conceptos e inversiones. Guárdala fuera del móvil como respaldo.</p>
+</div>
+<div class="section"><h2>Sincronización con Google Drive</h2>
+<p class="small">La app puede guardar una copia en tu Drive mediante un pequeño Google Apps Script. Drive será el almacén de datos; la app seguirá funcionando aunque estés sin conexión.</p>
+<label class="small">URL del servicio de sincronización</label>
+<input id="syncUrl" placeholder="https://script.google.com/macros/s/…/exec" style="width:100%;margin:5px 0 8px">
+<label class="small">Clave de sincronización</label>
+<input id="syncToken" type="password" placeholder="La clave que configures en Apps Script" style="width:100%;margin:5px 0 8px">
+<div style="display:flex;gap:8px;flex-wrap:wrap">
+<button class="secondary" onclick="saveSyncConfig()">Guardar conexión</button>
+<button class="secondary" onclick="syncToDrive()">☁️ Guardar en Drive</button>
+<button class="secondary" onclick="restoreFromDrive()">☁️ Recuperar de Drive</button>
+</div>
+<div id="syncStatus" class="small" style="margin-top:8px"></div>
+</div>
 <div class="actions"><button class="danger" onclick="clearAll()">Borrar todo</button><button class="primary" onclick="closeSettings()">Cerrar</button></div></div></div>
 
 <script>
-const KEY='gastosDB_v6';
+try {
+  if (!localStorage.getItem("gastosSyncConfig")) {
+    localStorage.setItem("gastosSyncConfig", JSON.stringify({url:'https://script.google.com/macros/s/AKfycbw1ouyUTVoD_vZt3IEJm1G9KWDXuEL5WndckPtg6r9WxkwJaq8SGB0r-YZ9_O-kNEHB/exec', token:'FY9EcFun0yyhHSgnDNboqZn_'}));
+  }
+} catch(e) {}
+
+const KEY='gastosDB_v7';
 const DEFAULT_ACCOUNTS=['Principal D','Trade Republic','Suscripciones','Santander','Ahorro Piso','Efectivo / En Mano','Efectivo Piso','Trade Republic A','Cuenta Principal A'];
 const DEFAULT_OPENING={'Principal D':0,'Trade Republic':2.76,'Suscripciones':293.87,'Santander':59.37,'Ahorro Piso':1357.68,'Efectivo / En Mano':3320,'Efectivo Piso':500,'Trade Republic A':5000,'Cuenta Principal A':191.81};
 const DEFAULT_CATS=['Alimentación','Restauración','Ocio','Parking','Coche / suscripciones','Combustible','Compras online','Mascotas','Empresa / combustible','Empresa','Formación','Hogar / internet','Hogar / varios','Cuidado personal','Software / digital','Tarjeta / deuda','Comisiones / sanciones','Reembolso empresa','Inversión','Otros'];
@@ -77,10 +104,76 @@ function editOp(id){openOp(id)}function deleteOp(id){if(confirm('¿Eliminar esta
 function addInvestment(){const account=prompt('Cuenta', 'Trade Republic A');if(!account)return;const name=prompt('Nombre del activo');if(!name)return;const symbol=prompt('Ticker o ISIN','');const q=Number(prompt('Unidades','1'));if(!q||q<=0)return;const p=Number(prompt('Precio actual por unidad (€)','0'));if(p<0||Number.isNaN(p))return;const a=prompt('Precio medio de compra (€) o vacío','');const x={id:crypto.randomUUID(),account,name,symbol,quantity:q,price:p,avgPrice:a===''?null:Number(a)};db.investments.push(x);db.prices[x.id]=p;save();showInvestments()}
 function editInvestment(id){const x=db.investments.find(i=>i.id===id);if(!x)return;const q=Number(prompt('Unidades',x.quantity));if(!q||q<=0)return;const p=Number(prompt('Precio actual por unidad (€)',db.prices[id]??x.price));if(p<0||Number.isNaN(p))return;const a=prompt('Precio medio de compra (€); vacío si desconocido',x.avgPrice??'');x.quantity=q;db.prices[id]=p;x.price=p;x.avgPrice=a===''?null:Number(a);save();showInvestments()}
 function refreshPrices(){alert('La cartera ya está preparada para cotizaciones automáticas. Esta versión mantiene los últimos valores de tus capturas hasta conectar la fuente de mercado.');}
-function openSettings(){document.getElementById('settings').classList.add('show');document.getElementById('settingsAccounts').innerHTML=db.accounts.map((a,i)=>`<div style="display:grid;grid-template-columns:1fr 130px;gap:8px;margin:7px 0"><input value="${a}" onchange="renameAccount(${i},this.value)"><input type="number" step="0.01" value="${db.opening[a]||0}" onchange="setOpening('${a.replaceAll("'","\\'")}',this.value)"></div>`).join('');document.getElementById('settingsCats').innerHTML=db.cats.map((c,i)=>`<div style="display:flex;gap:8px;margin:7px 0"><input value="${c}" onchange="db.cats[${i}]=this.value;save()"><button class="danger" onclick="db.cats.splice(${i},1);save();openSettings()">×</button></div>`).join('');document.getElementById('settingsConcepts').innerHTML=db.concepts.map((c,i)=>`<div style="display:flex;gap:8px;margin:7px 0"><input value="${c}" onchange="db.concepts[${i}]=this.value;save()"><button class="danger" onclick="db.concepts.splice(${i},1);save();openSettings()">×</button></div>`).join('');document.getElementById('investmentAccounts').innerHTML=db.accounts.filter(a=>/trade republic/i.test(a)).map(a=>`<div class="account" style="margin:7px 0"><span>${a}</span><b>${euro(balance(a))}</b></div>`).join('')}
+function openSettings(){document.getElementById('settings').classList.add('show');loadSyncFields();document.getElementById('settingsAccounts').innerHTML=db.accounts.map((a,i)=>`<div style="display:grid;grid-template-columns:1fr 130px;gap:8px;margin:7px 0"><input value="${a}" onchange="renameAccount(${i},this.value)"><input type="number" step="0.01" value="${db.opening[a]||0}" onchange="setOpening('${a.replaceAll("'","\\'")}',this.value)"></div>`).join('');document.getElementById('settingsCats').innerHTML=db.cats.map((c,i)=>`<div style="display:flex;gap:8px;margin:7px 0"><input value="${c}" onchange="db.cats[${i}]=this.value;save()"><button class="danger" onclick="db.cats.splice(${i},1);save();openSettings()">×</button></div>`).join('');document.getElementById('settingsConcepts').innerHTML=db.concepts.map((c,i)=>`<div style="display:flex;gap:8px;margin:7px 0"><input value="${c}" onchange="db.concepts[${i}]=this.value;save()"><button class="danger" onclick="db.concepts.splice(${i},1);save();openSettings()">×</button></div>`).join('');document.getElementById('investmentAccounts').innerHTML=db.accounts.filter(a=>/trade republic/i.test(a)).map(a=>`<div class="account" style="margin:7px 0"><span>${a}</span><b>${euro(balance(a))}</b></div>`).join('')}
 function closeSettings(){document.getElementById('settings').classList.remove('show');render()}function renameAccount(i,v){const old=db.accounts[i];if(!v||db.accounts.includes(v)&&v!==old)return;db.accounts[i]=v;db.opening[v]=db.opening[old]||0;delete db.opening[old];db.ops.forEach(o=>{if(o.origin===old)o.origin=v;if(o.dest===old)o.dest=v});db.investments.forEach(x=>{if(x.account===old)x.account=v});save()}
 function setOpening(a,v){db.opening[a]=Number(v)||0;save()}function addAccount(){const a=prompt('Nombre de la cuenta');if(a&&!db.accounts.includes(a)){db.accounts.push(a);db.opening[a]=0;save();openSettings()}}function addConcept(){const c=prompt('Nombre del concepto');if(c&&c.trim()&&!db.concepts.includes(c.trim())){db.concepts.push(c.trim());db.concepts.sort((a,b)=>a.localeCompare(b,'es'));save();openSettings()}}function addCategory(){const c=prompt('Nombre de la categoría');if(c&&!db.cats.includes(c)){db.cats.push(c);save();openSettings()}}
 function restoreBaseData(){if(!confirm('Esto sustituirá los datos de esta versión por la base de septiembre 2026 que me has pasado. ¿Continuar?'))return;db=baseDB();save();closeSettings();render()}
-function clearAll(){if(confirm('¿Borrar todas las operaciones, cuentas e inversiones de esta versión?')){localStorage.removeItem(KEY);db={accounts:[],cats:[],concepts:[],opening:{},ops:[],investments:[],prices:[],version:6};save();location.reload()}}
+
+function exportBackup(){
+  const payload={app:"Gastos",version:7,exportedAt:new Date().toISOString(),data:db};
+  const blob=new Blob([JSON.stringify(payload,null,2)],{type:"application/json"});
+  const a=document.createElement("a");a.href=URL.createObjectURL(blob);
+  a.download="gastos-backup-"+new Date().toISOString().slice(0,10)+".json";a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+}
+function importBackup(ev){
+  const f=ev.target.files?.[0]; if(!f)return;
+  const r=new FileReader();
+  r.onload=()=>{
+    try{
+      const p=JSON.parse(r.result), d=p.data||p;
+      if(!d.accounts||!d.ops||!d.investments) throw new Error("Formato no válido");
+      if(!confirm("Esto sustituirá los datos actuales por la copia. ¿Continuar?")) return;
+      db=d; db.version=7; save(); render(); closeSettings();
+      alert("Copia restaurada correctamente.");
+    }catch(e){alert("No se pudo importar la copia: "+e.message)}
+  };
+  r.readAsText(f); ev.target.value="";
+}
+function getSyncConfig(){
+  try{return JSON.parse(localStorage.getItem("gastosSyncConfig")||"{}")}catch(e){return {}}
+}
+function saveSyncConfig(){
+  const url=document.getElementById("syncUrl").value.trim();
+  const token=document.getElementById("syncToken").value.trim();
+  if(!url||!token)return alert("Introduce la URL y la clave.");
+  localStorage.setItem("gastosSyncConfig",JSON.stringify({url,token}));
+  setSyncStatus("Conexión guardada.");
+}
+function setSyncStatus(s){const el=document.getElementById("syncStatus");if(el)el.textContent=s}
+function syncToDrive(){
+  const c=getSyncConfig(); if(!c.url||!c.token)return alert("Configura primero la conexión con Google Drive.");
+  const payload=JSON.stringify({token:c.token,data:db,savedAt:new Date().toISOString()});
+  setSyncStatus("Guardando copia en Drive…");
+  fetch(c.url,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain;charset=utf-8"},body:payload})
+    .then(()=>setSyncStatus("Copia enviada a Drive."))
+    .catch(e=>setSyncStatus("Error al guardar: "+e.message));
+}
+function restoreFromDrive(){
+  const c=getSyncConfig(); if(!c.url||!c.token)return alert("Configura primero la conexión con Google Drive.");
+  setSyncStatus("Recuperando datos…");
+  const cb="gastosSync_"+Date.now();
+  window[cb]=(res)=>{
+    try{
+      delete window[cb];
+      if(!res||res.ok!==true) throw new Error(res?.error||"No se pudo recuperar la copia.");
+      if(!res.data?.accounts||!res.data?.ops||!res.data?.investments) throw new Error("Copia inválida.");
+      if(confirm("Esto sustituirá los datos actuales por la copia de Drive. ¿Continuar?")){
+        db=res.data;db.version=7;save();render();closeSettings();alert("Datos recuperados de Drive.");
+      }
+      setSyncStatus("Datos recibidos de Drive.");
+    }catch(e){setSyncStatus("Error: "+e.message)}
+  };
+  const s=document.createElement("script");
+  s.src=c.url+"?action=get&token="+encodeURIComponent(c.token)+"&callback="+cb;
+  s.onerror=()=>{delete window[cb];setSyncStatus("No se pudo conectar con Drive.")};
+  document.body.appendChild(s);
+}
+function loadSyncFields(){
+  const c=getSyncConfig();
+  const u=document.getElementById("syncUrl"),t=document.getElementById("syncToken");
+  if(u)u.value=c.url||""; if(t)t.value=c.token||"";
+}
+function clearAll(){if(confirm('¿Borrar todas las operaciones, cuentas e inversiones de esta versión?')){localStorage.removeItem(KEY);localStorage.removeItem("gastosSyncConfig");db={accounts:[],cats:[],concepts:[],opening:{},ops:[],investments:[],prices:{},version:7};save();location.reload()}}
 render();
 </script></body></html>
