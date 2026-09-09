@@ -1,18 +1,18 @@
-# Sincronización con Google Drive
+# GastosApp V12
 
-La app puede seguir funcionando sin conexión y guardar una copia en Google Drive.
+Incluye:
+- cotizaciones automáticas de ETH/SOL con CoinGecko;
+- cotizaciones de ETF/acciones mediante Yahoo Finance, a través de tu Google Apps Script;
+- conversión USD/EUR mediante EURUSD;
+- símbolo de mercado preasignado para AUM5, VVSM, CNDX, PPFB, QDVE y CIFR;
+- histórico de última actualización y fuente;
+- copia/sincronización Drive.
 
-## Configuración
-1. Abre https://script.google.com/ y crea un proyecto nuevo.
-2. Copia `GoogleAppsScript_Code.gs` al editor.
-3. Guarda el proyecto.
-4. Deploy > New deployment > Web app.
-5. Ejecutar como: tú.
-6. Acceso: cualquier usuario con el enlace (la app además usa una clave de sincronización).
-7. Copia la URL que termina en `/exec`.
-8. En Gastos > Configuración > Sincronización con Google Drive, pega esa URL y la misma clave que aparece al final del archivo `.gs`.
-9. Pulsa Guardar conexión.
-10. Pulsa Guardar en Drive para hacer la primera copia.
-11. En otro dispositivo, configura la misma URL y clave y pulsa Recuperar de Drive.
+## Para activar las cotizaciones de bolsa
+En Google Apps Script sustituye el código anterior por `GoogleAppsScript_Code_V12.gs` y crea una **nueva versión del mismo deployment**. No crees otro proyecto ni cambies la URL.
 
-La app no guarda contraseñas bancarias ni credenciales de Trade Republic. Drive se utiliza como almacén de la copia financiera.
+El token ya está incorporado en el archivo `.gs`; no lo publiques ni lo compartas.
+
+La fuente de cotización de bolsa es Yahoo Finance a través del Apps Script. La cotización puede ser retrasada según el mercado. La app conserva el último valor si una fuente no responde.
+
+El S&P 500 EUR (Acc) está identificado como Amundi S&P 500 Swap UCITS ETF EUR Acc, ISIN LU1681048804, ticker Xetra AUM5/AUM5.DE.
