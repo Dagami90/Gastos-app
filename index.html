@@ -16,7 +16,7 @@ table{width:100%;border-collapse:collapse;background:#fff;border-radius:13px;ove
 </style></head>
 <body>
 <header><div class="top"><div><h1>CONTROL FINANCIERO</h1><div class="sub">Septiembre 2026 · cuentas · gastos · inversiones · patrimonio</div></div><button class="secondary" onclick="openSettings()">⚙<button class="secondary" onclick="document.getElementById('roadmapModal').classList.add('show')">🚀 Hoja de ruta</button></button></div></header>
-<main><nav><button class="secondary" onclick="showView('dashboard')">Dashboard</button><button class="secondary" onclick="showView('movimientos')">Movimientos</button><button class="secondary" onclick="showView('cuentas')">Cuentas</button><button class="secondary" onclick="showView('inversiones')">Inversiones</button><button class="secondary" onclick="showView('mineria')">⛏️ Minería</button></nav><div id="app"></div></main>
+<main><nav><button class="secondary" onclick="showView('dashboard')">Dashboard</button><button class="secondary" onclick="showView('movimientos')">Movimientos</button><button class="secondary" onclick="showView('cuentas')">Cuentas</button><button class="secondary" onclick="showView('inversiones')">Inversiones</button></nav><div id="app"></div></main>
 <button class="fab" onclick="openOp()">＋ Añadir operación</button>
 
 <div class="modal" id="modal"><div class="sheet"><h2 id="modalTitle">Nueva operación</h2><div class="types"><button class="type active" data-t="Gasto" onclick="setType('Gasto')">💸 Gasto</button><button class="type" data-t="Ingreso" onclick="setType('Ingreso')">💰 Ingreso</button><button class="type" data-t="Traspaso" onclick="setType('Traspaso')">🔄 Traspaso</button><button class="type" data-t="Inversión" onclick="setType('Inversión')">📈 Inversión</button></div>
@@ -26,7 +26,7 @@ table{width:100%;border-collapse:collapse;background:#fff;border-radius:13px;ove
 <div class="modal" id="settings"><div class="sheet"><h2>Configuración</h2><div class="notice ok">Base actualizada con los datos que me has pasado: saldos iniciales, movimientos de septiembre, dos cuentas de Trade Republic, posiciones, unidades, precios medios y staking.</div>
 <div class="section"><h2>Cuentas</h2><div id="settingsAccounts"></div><button class="secondary" onclick="addAccount()">＋ Añadir cuenta</button></div>
 <div class="section"><h2>Categorías de gasto</h2><div id="settingsCats"></div><button class="secondary" onclick="addCategory()">＋ Añadir categoría</button></div>
-<div class="section"><h2>Conceptos de gasto</h2><div id="settingsConcepts"></div><button class="secondary" onclick="addConcept()">＋ Añadir concepto</button></div>
+<div class="section"><h2>Tipos de movimiento</h2><div id="settingsTypes"></div><button class="secondary" onclick="addType()">＋ Añadir tipo</button></div><div class="section"><h2>Conceptos de gasto</h2><div id="settingsConcepts"></div><button class="secondary" onclick="addConcept()">＋ Añadir concepto</button></div>
 <div class="section"><h2>Cuentas de inversión</h2><div id="investmentAccounts"></div></div>
 <div class="section"><h2>Mercados e inversiones</h2>
 <p class="small">Cripto puede actualizarse directamente con CoinGecko; acciones/ETF pueden usar Twelve Data si añades una API key. Twelve Data cubre acciones, ETF, FX y cripto. cite no-render</p>
@@ -113,23 +113,13 @@ function baseDB(){const db={accounts:[...DEFAULT_ACCOUNTS],cats:[...DEFAULT_CATS
 let syncTimer=null;
 let db=JSON.parse(localStorage.getItem(KEY)||'null');
 window.db=db;
-if(!db.mining){
- db.mining={
-  miners:2, hashrateTHs:1.78, avgPowerW:13.31, rewardBTC:0.00000544,
-  rewardPeriod:"Semanal · martes 12:00 UTC",
-  rewards:[
-   {date:"2026-09-08",btc:0.00000154},
-   {date:"2026-09-01",btc:0.00000206},
-   {date:"2026-08-25",btc:0.00000183}
-  ],
-  records:[
-   {date:"2026-09-08",miners:2,hashrateTHs:1.78,avgPowerW:13.31},
-   {date:"2026-09-01",miners:2,hashrateTHs:1.78,avgPowerW:13.31},
-   {date:"2026-08-25",miners:2,hashrateTHs:1.78,avgPowerW:13.31}
-  ]
- };
- save();
-}
+if(!db.typeConfig) db.typeConfig={Gasto:{label:"Gasto",icon:"💸",enabled:true},Ingreso:{label:"Ingreso",icon:"💰",enabled:true},Traspaso:{label:"Traspaso",icon:"🔄",enabled:true},Inversión:{label:"Inversión",icon:"📈",enabled:true}};
+if(!db.categoryMeta) db.categoryMeta={};
+if(!db.conceptMeta) db.conceptMeta={};
+const marketMap={"S&P 500 EUR (Acc)":{isin:"LU1681048804",ticker:"AUM5.DE",currency:"EUR"},"Semiconductor USD (Acc)":{isin:"IE00BMC38736",ticker:"VVSM.DE",currency:"EUR"},"NASDAQ100 USD (Acc)":{isin:"IE00B53SZB19",ticker:"CNDX.NA",currency:"USD"},"Cipher Mining":{isin:"US17253J1060",ticker:"CIFR",currency:"USD"},"Physical Gold USD (Acc)":{isin:"IE00B4ND3602",ticker:"PPFB.DE",currency:"USD"},"Global Water USD (Acc)":{isin:"IE000CFH1JX2",ticker:"H2OA.DE",currency:"EUR"},"S&P 500 Information Tech USD (Acc)":{isin:"IE00B3WJKG14",ticker:"QDVE.DE",currency:"USD"}};
+(db.investments||[]).forEach(x=>{const m=marketMap[x.name];if(m){x.isin=x.isin||m.isin;x.marketSymbol=x.marketSymbol||m.ticker;x.currency=x.currency||m.currency;}});
+save();
+
 if(!db){
   const legacy=JSON.parse(localStorage.getItem('gastosDB_v7')||localStorage.getItem('gastosDB_v6')||'null');
   db=legacy||baseDB();
@@ -188,24 +178,7 @@ function euro(n){return new Intl.NumberFormat('es-ES',{style:'currency',currency
 function balance(acc){let b=Number(db.opening[acc]||0);for(const o of db.ops){if(o.origin===acc){if(o.type==='Ingreso')b+=o.amount;else if(o.type==='Gasto'||o.type==='Inversión'||o.type==='Traspaso')b-=o.amount}if(o.type==='Traspaso'&&o.dest===acc)b+=o.amount}return b}
 function totals(ym){let i=0,g=0,inv=0;for(const o of db.ops){if(o.date.slice(0,7)!==ym)continue;if(o.type==='Ingreso')i+=o.amount;if(o.type==='Gasto')g+=o.amount;if(o.type==='Inversión')inv+=o.amount}return{i,g,inv,r:i-g}}
 function portfolioValue(){return db.investments.reduce((s,x)=>s+(Number(x.quantity)||0)*(Number(db.prices[x.id]??x.price??0)||0),0)}function investedCost(){return db.investments.reduce((s,x)=>s+(x.avgPrice==null?0:(Number(x.quantity)||0)*Number(x.avgPrice)),0)}
-function showMining(){
- const m=db.mining||{};
- document.getElementById('app').innerHTML=`<div class="cards">
- <div class="card"><div class="label">Mineros</div><div class="value">${m.miners||0}</div></div>
- <div class="card"><div class="label">Potencia de cómputo</div><div class="value">${fmtNum(m.hashrateTHs,2)} TH/s</div></div>
- <div class="card"><div class="label">Consumo medio</div><div class="value">${fmtNum(m.avgPowerW,2)} W</div></div>
- <div class="card"><div class="label">Recompensas del período</div><div class="value yellow">${fmtNum(m.rewardBTC,8)} BTC</div></div>
- </div>
- <div class="section"><h2>Recompensas</h2><div class="notice">Se calculan y distribuyen semanalmente los martes a las 12:00 UTC.</div>
- <div class="scroll" style="margin-top:12px"><table><thead><tr><th>Fecha</th><th>Recompensa</th><th>Valor EUR</th></tr></thead><tbody>
- ${(m.rewards||[]).map(r=>`<tr><td>${r.date}</td><td>${fmtNum(r.btc,8)} BTC</td><td>—</td></tr>`).join('')}
- </tbody></table></div></div>
- <div class="section"><h2>Rendimiento</h2><div class="scroll"><table><thead><tr><th>Fecha</th><th>Mineros</th><th>CP (TH/s)</th><th>E media (W)</th></tr></thead><tbody>
- ${(m.records||[]).map(r=>`<tr><td>${r.date}</td><td>${r.miners}</td><td>${fmtNum(r.hashrateTHs,2)}</td><td>${fmtNum(r.avgPowerW,2)}</td></tr>`).join('')}
- </tbody></table></div></div>`;
-}
-function fmtNum(n,d=2){return Number(n||0).toLocaleString('es-ES',{minimumFractionDigits:d,maximumFractionDigits:d})}
-function showView(v){if(v==='movimientos')showMovimientos();else if(v==='cuentas')showCuentas();else if(v==='inversiones')showInvestments();else if(v==='mineria')showMining();else render()}
+function showView(v){if(v==='movimientos')showMovimientos();else if(v==='cuentas')showCuentas();else if(v==='inversiones')showInvestments();else render()}
 function render(){const ym=new Date().toISOString().slice(0,7);const t=totals(ym),cash=db.accounts.reduce((s,a)=>s+balance(a),0),inv=portfolioValue();document.getElementById('app').innerHTML=`<div class="cards"><div class="card"><div class="label">Patrimonio total</div><div class="value">${euro(cash+inv)}</div></div><div class="card"><div class="label">Inversiones</div><div class="value yellow">${euro(inv)}</div></div><div class="card"><div class="label">Saldos / efectivo</div><div class="value">${euro(cash)}</div></div><div class="card"><div class="label">Ingresos septiembre</div><div class="value green">${euro(t.i)}</div></div><div class="card"><div class="label">Gastos septiembre</div><div class="value red">${euro(t.g)}</div></div><div class="card"><div class="label">Resultado</div><div class="value ${t.r>=0?'green':'red'}">${euro(t.r)}</div></div><div class="card"><div class="label">Inversiones del mes</div><div class="value yellow">${euro(t.inv)}</div></div><div class="card"><div class="label">Tasa de ahorro</div><div class="value">${t.i?(t.r/t.i*100).toFixed(1):'0.0'}%</div></div></div>
 <div class="section"><h2>Saldos por cuenta</h2><div class="accounts">${db.accounts.map(a=>`<div class="account"><div><b>${a}</b><div class="small">Saldo actual</div></div><b>${euro(balance(a))}</b></div>`).join('')}</div></div>
 <div class="section"><h2>Resumen de inversión</h2><div class="notice ok">Cartera cargada con 9 posiciones. Crypto incluye staking: ETH 0,036763 · 2,33% APY; SOL 0,234543 · 4,56% APY · recompensas 0,02 SOL.</div></div>
@@ -289,7 +262,24 @@ function manageRecurring(){
   alert('Recurrente añadido.');
 }
 
-function openSettings(){document.getElementById('settings').classList.add('show');loadSyncFields();loadMarketFields();document.getElementById('settingsAccounts').innerHTML=db.accounts.map((a,i)=>`<div style="display:grid;grid-template-columns:1fr 130px;gap:8px;margin:7px 0"><input value="${a}" onchange="renameAccount(${i},this.value)"><input type="number" step="0.01" value="${db.opening[a]||0}" onchange="setOpening('${a.replaceAll("'","\\'")}',this.value)"></div>`).join('');document.getElementById('settingsCats').innerHTML=db.cats.map((c,i)=>`<div style="display:flex;gap:8px;margin:7px 0"><input value="${c}" onchange="db.cats[${i}]=this.value;save()"><button class="danger" onclick="db.cats.splice(${i},1);save();openSettings()">×</button></div>`).join('');document.getElementById('settingsConcepts').innerHTML=db.concepts.map((c,i)=>`<div style="display:flex;gap:8px;margin:7px 0"><input value="${c}" onchange="db.concepts[${i}]=this.value;save()"><button class="danger" onclick="db.concepts.splice(${i},1);save();openSettings()">×</button></div>`).join('');document.getElementById('investmentAccounts').innerHTML=db.accounts.filter(a=>/trade republic/i.test(a)).map(a=>`<div class="account" style="margin:7px 0"><span>${a}</span><b>${euro(balance(a))}</b></div>`).join('')}
+function openSettings(){
+document.getElementById('settings').classList.add('show');loadSyncFields();loadMarketFields();
+document.getElementById('settingsAccounts').innerHTML=db.accounts.map((a,i)=>`<div style="display:grid;grid-template-columns:1fr 130px;gap:8px;margin:7px 0"><input value="${a}" onchange="renameAccount(${i},this.value)"><input type="number" step="0.01" value="${db.opening[a]||0}" onchange="setOpening('${a.replaceAll("'","\\'")}',this.value)"></div>`).join('');
+document.getElementById('settingsCats').innerHTML=db.cats.map((c,i)=>{const on=db.categoryMeta?.[c]?.enabled!==false;return `<div style="display:grid;grid-template-columns:1fr 100px auto;gap:8px;margin:7px 0"><input value="${c}" onchange="renameCategory(${i},this.value)"><select onchange="setCategoryEnabled('${c.replaceAll("'","\\'")}',this.value==='true')"><option value="true" ${on?'selected':''}>Activa</option><option value="false" ${!on?'selected':''}>Inactiva</option></select><button class="secondary" onclick="renameCategory(${i},prompt('Nuevo nombre',db.cats[${i}]))">✎</button></div>`}).join('');
+document.getElementById('settingsConcepts').innerHTML=db.concepts.map((c,i)=>{const on=db.conceptMeta?.[c]?.enabled!==false;return `<div style="display:grid;grid-template-columns:1fr 100px auto;gap:8px;margin:7px 0"><input value="${c}" onchange="renameConcept(${i},this.value)"><select onchange="setConceptEnabled('${c.replaceAll("'","\\'")}',this.value==='true')"><option value="true" ${on?'selected':''}>Activo</option><option value="false" ${!on?'selected':''}>Inactivo</option></select><button class="secondary" onclick="renameConcept(${i},prompt('Nuevo nombre',db.concepts[${i}]))">✎</button></div>`}).join('');
+const st=document.getElementById('settingsTypes');if(st)st.innerHTML=Object.entries(db.typeConfig||{}).map(([k,v])=>`<div style="display:grid;grid-template-columns:1fr 70px 100px;gap:8px;margin:7px 0"><input value="${v.label||k}" onchange="db.typeConfig['${k}'].label=this.value;save()"><input value="${v.icon||''}" maxlength="2" onchange="db.typeConfig['${k}'].icon=this.value;save()"><select onchange="db.typeConfig['${k}'].enabled=this.value==='true';save()"><option value="true" ${v.enabled!==false?'selected':''}>Activo</option><option value="false" ${v.enabled===false?'selected':''}>Inactivo</option></select></div>`).join('');
+document.getElementById('investmentAccounts').innerHTML=db.accounts.filter(a=>/trade republic/i.test(a)).map(a=>`<div class="account" style="margin:7px 0"><span>${a}</span><b>${euro(balance(a))}</b></div>`).join('');
+}
+function renameAccount(i,v){const old=db.accounts[i];if(!v||db.accounts.includes(v)&&v!==old)return;db.accounts[i]=v;db.opening[v]=db.opening[old]||0;delete db.opening[old];db.ops.forEach(o=>{if(o.origin===old)o.origin=v;if(o.dest===old)o.dest=v});db.investments.forEach(x=>{if(x.account===old)x.account=v});save()}
+function setOpening(a,v){db.opening[a]=Number(v)||0;save()}
+function addAccount(){const a=prompt('Nombre de la cuenta');if(a&&a.trim()&&!db.accounts.includes(a.trim())){db.accounts.push(a.trim());db.opening[a.trim()]=0;save();openSettings()}}
+function addConcept(){const c=prompt('Nombre del concepto');if(c&&c.trim()&&!db.concepts.includes(c.trim())){c=c.trim();db.concepts.push(c);db.conceptMeta[c]={enabled:true};save();openSettings()}}
+function renameConcept(i,v){v=(v||'').trim();const old=db.concepts[i];if(!v||v===old||db.concepts.includes(v))return;db.concepts[i]=v;db.conceptMeta[v]=db.conceptMeta[old]||{enabled:true};delete db.conceptMeta[old];db.ops.forEach(o=>{if(o.concept===old)o.concept=v});save();openSettings()}
+function setConceptEnabled(c,on){db.conceptMeta[c]={...(db.conceptMeta[c]||{}),enabled:on};save()}
+function addCategory(){const c=prompt('Nombre de la categoría de gasto');if(c&&c.trim()&&!db.cats.includes(c.trim())){c=c.trim();db.cats.push(c);db.categoryMeta[c]={enabled:true};save();openSettings()}}
+function renameCategory(i,v){v=(v||'').trim();const old=db.cats[i];if(!v||v===old||db.cats.includes(v))return;db.cats[i]=v;db.categoryMeta[v]=db.categoryMeta[old]||{enabled:true};delete db.categoryMeta[old];db.ops.forEach(o=>{if(o.cat===old)o.cat=v});save();openSettings()}
+function setCategoryEnabled(c,on){db.categoryMeta[c]={...(db.categoryMeta[c]||{}),enabled:on};save()}
+function addType(){const k=prompt('Nombre del nuevo tipo de movimiento');if(k&&k.trim()&&!db.typeConfig[k.trim()]){k=k.trim();db.typeConfig[k]={label:k,icon:'•',enabled:true};save();openSettings()}}
 function closeSettings(){document.getElementById('settings').classList.remove('show');render()}function renameAccount(i,v){const old=db.accounts[i];if(!v||db.accounts.includes(v)&&v!==old)return;db.accounts[i]=v;db.opening[v]=db.opening[old]||0;delete db.opening[old];db.ops.forEach(o=>{if(o.origin===old)o.origin=v;if(o.dest===old)o.dest=v});db.investments.forEach(x=>{if(x.account===old)x.account=v});save()}
 function setOpening(a,v){db.opening[a]=Number(v)||0;save()}function addAccount(){const a=prompt('Nombre de la cuenta');if(a&&!db.accounts.includes(a)){db.accounts.push(a);db.opening[a]=0;save();openSettings()}}function addConcept(){const c=prompt('Nombre del concepto');if(c&&c.trim()&&!db.concepts.includes(c.trim())){db.concepts.push(c.trim());db.concepts.sort((a,b)=>a.localeCompare(b,'es'));save();openSettings()}}function addCategory(){const c=prompt('Nombre de la categoría');if(c&&!db.cats.includes(c)){db.cats.push(c);save();openSettings()}}
 function restoreBaseData(){if(!confirm('Esto sustituirá los datos de esta versión por la base de septiembre 2026 que me has pasado. ¿Continuar?'))return;db=baseDB();window.db=db;save();closeSettings();render()}
