@@ -110,10 +110,13 @@ const BASE_INV=[
 {account:'Trade Republic A',name:'S&P 500 Information Tech USD (Acc)',symbol:'IE00B3WJKG14',quantity:0.068179,value:3.02,avgPrice:44.74}
 ];
 function baseDB(){const db={accounts:[...DEFAULT_ACCOUNTS],cats:[...DEFAULT_CATS],concepts:[...DEFAULT_CONCEPTS],opening:{...DEFAULT_OPENING},ops:[],investments:[],prices:{},version:6};for(const r of BASE_OPS)db.ops.push({id:crypto.randomUUID(),date:r[0],type:r[1],cat:r[2],desc:r[3],amount:r[4],origin:r[5],dest:r[6]||''});for(const item of BASE_INV){const x={...item,id:crypto.randomUUID(),price:item.value/item.quantity};db.investments.push(x);db.prices[x.id]=x.price}return db}
+let syncTimer=null;
 let db=JSON.parse(localStorage.getItem(KEY)||'null');
+window.db=db;
 if(!db){
   const legacy=JSON.parse(localStorage.getItem('gastosDB_v7')||localStorage.getItem('gastosDB_v6')||'null');
   db=legacy||baseDB();
+  window.db=db;
   db.version=13;
   db.netWorthHistory=db.netWorthHistory||[];
   db.budgets=db.budgets||{};
@@ -122,7 +125,6 @@ if(!db){
   save();
 }
 if(db.version!==13){db.version=13;db.netWorthHistory=db.netWorthHistory||[];db.budgets=db.budgets||{};db.recurring=db.recurring||[];db.market=db.market||{provider:'coingecko+twelvedata',apiKey:'',interval:15};save()}
-let syncTimer=null;
 function save(){
   localStorage.setItem(KEY,JSON.stringify(db));
   recordNetWorthSnapshot();
@@ -256,7 +258,7 @@ function manageRecurring(){
 function openSettings(){document.getElementById('settings').classList.add('show');loadSyncFields();loadMarketFields();document.getElementById('settingsAccounts').innerHTML=db.accounts.map((a,i)=>`<div style="display:grid;grid-template-columns:1fr 130px;gap:8px;margin:7px 0"><input value="${a}" onchange="renameAccount(${i},this.value)"><input type="number" step="0.01" value="${db.opening[a]||0}" onchange="setOpening('${a.replaceAll("'","\\'")}',this.value)"></div>`).join('');document.getElementById('settingsCats').innerHTML=db.cats.map((c,i)=>`<div style="display:flex;gap:8px;margin:7px 0"><input value="${c}" onchange="db.cats[${i}]=this.value;save()"><button class="danger" onclick="db.cats.splice(${i},1);save();openSettings()">×</button></div>`).join('');document.getElementById('settingsConcepts').innerHTML=db.concepts.map((c,i)=>`<div style="display:flex;gap:8px;margin:7px 0"><input value="${c}" onchange="db.concepts[${i}]=this.value;save()"><button class="danger" onclick="db.concepts.splice(${i},1);save();openSettings()">×</button></div>`).join('');document.getElementById('investmentAccounts').innerHTML=db.accounts.filter(a=>/trade republic/i.test(a)).map(a=>`<div class="account" style="margin:7px 0"><span>${a}</span><b>${euro(balance(a))}</b></div>`).join('')}
 function closeSettings(){document.getElementById('settings').classList.remove('show');render()}function renameAccount(i,v){const old=db.accounts[i];if(!v||db.accounts.includes(v)&&v!==old)return;db.accounts[i]=v;db.opening[v]=db.opening[old]||0;delete db.opening[old];db.ops.forEach(o=>{if(o.origin===old)o.origin=v;if(o.dest===old)o.dest=v});db.investments.forEach(x=>{if(x.account===old)x.account=v});save()}
 function setOpening(a,v){db.opening[a]=Number(v)||0;save()}function addAccount(){const a=prompt('Nombre de la cuenta');if(a&&!db.accounts.includes(a)){db.accounts.push(a);db.opening[a]=0;save();openSettings()}}function addConcept(){const c=prompt('Nombre del concepto');if(c&&c.trim()&&!db.concepts.includes(c.trim())){db.concepts.push(c.trim());db.concepts.sort((a,b)=>a.localeCompare(b,'es'));save();openSettings()}}function addCategory(){const c=prompt('Nombre de la categoría');if(c&&!db.cats.includes(c)){db.cats.push(c);save();openSettings()}}
-function restoreBaseData(){if(!confirm('Esto sustituirá los datos de esta versión por la base de septiembre 2026 que me has pasado. ¿Continuar?'))return;db=baseDB();save();closeSettings();render()}
+function restoreBaseData(){if(!confirm('Esto sustituirá los datos de esta versión por la base de septiembre 2026 que me has pasado. ¿Continuar?'))return;db=baseDB();window.db=db;save();closeSettings();render()}
 
 function exportBackup(){
   const payload={app:"Gastos",version:13,exportedAt:new Date().toISOString(),data:db};
@@ -273,7 +275,7 @@ function importBackup(ev){
       const p=JSON.parse(r.result), d=p.data||p;
       if(!d.accounts||!d.ops||!d.investments) throw new Error("Formato no válido");
       if(!confirm("Esto sustituirá los datos actuales por la copia. ¿Continuar?")) return;
-      db=d; db.version=7; save(); render(); closeSettings();
+      db=d; window.db=db; db.version=13; save(); render(); closeSettings();
       alert("Copia restaurada correctamente.");
     }catch(e){alert("No se pudo importar la copia: "+e.message)}
   };
@@ -308,7 +310,7 @@ function restoreFromDrive(){
       if(!res||res.ok!==true) throw new Error(res?.error||"No se pudo recuperar la copia.");
       if(!res.data?.accounts||!res.data?.ops||!res.data?.investments) throw new Error("Copia inválida.");
       if(confirm("Esto sustituirá los datos actuales por la copia de Drive. ¿Continuar?")){
-        db=res.data;db.version=7;save();render();closeSettings();alert("Datos recuperados de Drive.");
+        db=res.data;window.db=db;db.version=13;save();render();closeSettings();alert("Datos recuperados de Drive.");
       }
       setSyncStatus("Datos recibidos de Drive.");
     }catch(e){setSyncStatus("Error: "+e.message)}
@@ -331,7 +333,7 @@ function startMarketRefresh(){
 }
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&db.market?.interval)startMarketRefresh()});
 startMarketRefresh();
-function clearAll(){if(confirm('¿Borrar todas las operaciones, cuentas e inversiones de esta versión?')){localStorage.removeItem(KEY);localStorage.removeItem("gastosSyncConfig");db={accounts:[],cats:[],concepts:[],opening:{},ops:[],investments:[],prices:{},version:7};save();location.reload()}}
+function clearAll(){if(confirm('¿Borrar todas las operaciones, cuentas e inversiones de esta versión?')){localStorage.removeItem(KEY);localStorage.removeItem("gastosSyncConfig");db={accounts:[],cats:[],concepts:[],opening:{},ops:[],investments:[],prices:{},version:13};save();location.reload()}}
 render();
 </script>
 <div id="roadmapModal" class="modal">
