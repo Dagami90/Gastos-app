@@ -16,7 +16,7 @@ table{width:100%;border-collapse:collapse;background:#fff;border-radius:13px;ove
 </style></head>
 <body>
 <header><div class="top"><div><h1>CONTROL FINANCIERO</h1><div class="sub">Septiembre 2026 · cuentas · gastos · inversiones · patrimonio</div></div><button class="secondary" onclick="openSettings()">⚙<button class="secondary" onclick="document.getElementById('roadmapModal').classList.add('show')">🚀 Hoja de ruta</button></button></div></header>
-<main><nav><button class="secondary" onclick="showView('dashboard')">Dashboard</button><button class="secondary" onclick="showView('movimientos')">Movimientos</button><button class="secondary" onclick="showView('cuentas')">Cuentas</button><button class="secondary" onclick="showView('inversiones')">Inversiones</button></nav><div id="app"></div></main>
+<main><nav><button class="secondary" onclick="showView('dashboard')">Dashboard</button><button class="secondary" onclick="showView('movimientos')">Movimientos</button><button class="secondary" onclick="showView('cuentas')">Cuentas</button><button class="secondary" onclick="showView('inversiones')">Inversiones</button><button class="secondary" onclick="showView('mineria')">⛏️ Minería</button></nav><div id="app"></div></main>
 <button class="fab" onclick="openOp()">＋ Añadir operación</button>
 
 <div class="modal" id="modal"><div class="sheet"><h2 id="modalTitle">Nueva operación</h2><div class="types"><button class="type active" data-t="Gasto" onclick="setType('Gasto')">💸 Gasto</button><button class="type" data-t="Ingreso" onclick="setType('Ingreso')">💰 Ingreso</button><button class="type" data-t="Traspaso" onclick="setType('Traspaso')">🔄 Traspaso</button><button class="type" data-t="Inversión" onclick="setType('Inversión')">📈 Inversión</button></div>
@@ -113,6 +113,23 @@ function baseDB(){const db={accounts:[...DEFAULT_ACCOUNTS],cats:[...DEFAULT_CATS
 let syncTimer=null;
 let db=JSON.parse(localStorage.getItem(KEY)||'null');
 window.db=db;
+if(!db.mining){
+ db.mining={
+  miners:2, hashrateTHs:1.78, avgPowerW:13.31, rewardBTC:0.00000544,
+  rewardPeriod:"Semanal · martes 12:00 UTC",
+  rewards:[
+   {date:"2026-09-08",btc:0.00000154},
+   {date:"2026-09-01",btc:0.00000206},
+   {date:"2026-08-25",btc:0.00000183}
+  ],
+  records:[
+   {date:"2026-09-08",miners:2,hashrateTHs:1.78,avgPowerW:13.31},
+   {date:"2026-09-01",miners:2,hashrateTHs:1.78,avgPowerW:13.31},
+   {date:"2026-08-25",miners:2,hashrateTHs:1.78,avgPowerW:13.31}
+  ]
+ };
+ save();
+}
 if(!db){
   const legacy=JSON.parse(localStorage.getItem('gastosDB_v7')||localStorage.getItem('gastosDB_v6')||'null');
   db=legacy||baseDB();
@@ -171,7 +188,24 @@ function euro(n){return new Intl.NumberFormat('es-ES',{style:'currency',currency
 function balance(acc){let b=Number(db.opening[acc]||0);for(const o of db.ops){if(o.origin===acc){if(o.type==='Ingreso')b+=o.amount;else if(o.type==='Gasto'||o.type==='Inversión'||o.type==='Traspaso')b-=o.amount}if(o.type==='Traspaso'&&o.dest===acc)b+=o.amount}return b}
 function totals(ym){let i=0,g=0,inv=0;for(const o of db.ops){if(o.date.slice(0,7)!==ym)continue;if(o.type==='Ingreso')i+=o.amount;if(o.type==='Gasto')g+=o.amount;if(o.type==='Inversión')inv+=o.amount}return{i,g,inv,r:i-g}}
 function portfolioValue(){return db.investments.reduce((s,x)=>s+(Number(x.quantity)||0)*(Number(db.prices[x.id]??x.price??0)||0),0)}function investedCost(){return db.investments.reduce((s,x)=>s+(x.avgPrice==null?0:(Number(x.quantity)||0)*Number(x.avgPrice)),0)}
-function showView(v){if(v==='movimientos')showMovimientos();else if(v==='cuentas')showCuentas();else if(v==='inversiones')showInvestments();else render()}
+function showMining(){
+ const m=db.mining||{};
+ document.getElementById('app').innerHTML=`<div class="cards">
+ <div class="card"><div class="label">Mineros</div><div class="value">${m.miners||0}</div></div>
+ <div class="card"><div class="label">Potencia de cómputo</div><div class="value">${fmtNum(m.hashrateTHs,2)} TH/s</div></div>
+ <div class="card"><div class="label">Consumo medio</div><div class="value">${fmtNum(m.avgPowerW,2)} W</div></div>
+ <div class="card"><div class="label">Recompensas del período</div><div class="value yellow">${fmtNum(m.rewardBTC,8)} BTC</div></div>
+ </div>
+ <div class="section"><h2>Recompensas</h2><div class="notice">Se calculan y distribuyen semanalmente los martes a las 12:00 UTC.</div>
+ <div class="scroll" style="margin-top:12px"><table><thead><tr><th>Fecha</th><th>Recompensa</th><th>Valor EUR</th></tr></thead><tbody>
+ ${(m.rewards||[]).map(r=>`<tr><td>${r.date}</td><td>${fmtNum(r.btc,8)} BTC</td><td>—</td></tr>`).join('')}
+ </tbody></table></div></div>
+ <div class="section"><h2>Rendimiento</h2><div class="scroll"><table><thead><tr><th>Fecha</th><th>Mineros</th><th>CP (TH/s)</th><th>E media (W)</th></tr></thead><tbody>
+ ${(m.records||[]).map(r=>`<tr><td>${r.date}</td><td>${r.miners}</td><td>${fmtNum(r.hashrateTHs,2)}</td><td>${fmtNum(r.avgPowerW,2)}</td></tr>`).join('')}
+ </tbody></table></div></div>`;
+}
+function fmtNum(n,d=2){return Number(n||0).toLocaleString('es-ES',{minimumFractionDigits:d,maximumFractionDigits:d})}
+function showView(v){if(v==='movimientos')showMovimientos();else if(v==='cuentas')showCuentas();else if(v==='inversiones')showInvestments();else if(v==='mineria')showMining();else render()}
 function render(){const ym=new Date().toISOString().slice(0,7);const t=totals(ym),cash=db.accounts.reduce((s,a)=>s+balance(a),0),inv=portfolioValue();document.getElementById('app').innerHTML=`<div class="cards"><div class="card"><div class="label">Patrimonio total</div><div class="value">${euro(cash+inv)}</div></div><div class="card"><div class="label">Inversiones</div><div class="value yellow">${euro(inv)}</div></div><div class="card"><div class="label">Saldos / efectivo</div><div class="value">${euro(cash)}</div></div><div class="card"><div class="label">Ingresos septiembre</div><div class="value green">${euro(t.i)}</div></div><div class="card"><div class="label">Gastos septiembre</div><div class="value red">${euro(t.g)}</div></div><div class="card"><div class="label">Resultado</div><div class="value ${t.r>=0?'green':'red'}">${euro(t.r)}</div></div><div class="card"><div class="label">Inversiones del mes</div><div class="value yellow">${euro(t.inv)}</div></div><div class="card"><div class="label">Tasa de ahorro</div><div class="value">${t.i?(t.r/t.i*100).toFixed(1):'0.0'}%</div></div></div>
 <div class="section"><h2>Saldos por cuenta</h2><div class="accounts">${db.accounts.map(a=>`<div class="account"><div><b>${a}</b><div class="small">Saldo actual</div></div><b>${euro(balance(a))}</b></div>`).join('')}</div></div>
 <div class="section"><h2>Resumen de inversión</h2><div class="notice ok">Cartera cargada con 9 posiciones. Crypto incluye staking: ETH 0,036763 · 2,33% APY; SOL 0,234543 · 4,56% APY · recompensas 0,02 SOL.</div></div>
