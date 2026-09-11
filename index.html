@@ -108,7 +108,7 @@ try {
   }
 } catch(e) {}
 
-const KEY='gastosDB_v20';
+const KEY='gastosDB_v22';
 const DEFAULT_ACCOUNTS=['Principal D','Trade Republic','Suscripciones','Santander','Ahorro Piso','Efectivo / En Mano','Efectivo Piso','Trade Republic A','Cuenta Principal A'];
 const DEFAULT_OPENING={'Principal D':0,'Trade Republic':2.76,'Suscripciones':293.87,'Santander':59.37,'Ahorro Piso':1357.68,'Efectivo / En Mano':3320,'Efectivo Piso':500,'Trade Republic A':5000,'Cuenta Principal A':191.81};
 const DEFAULT_CATS=['Alimentación','Restauración','Ocio','Parking','Coche / suscripciones','Combustible','Compras online','Mascotas','Empresa / combustible','Empresa','Formación','Hogar / internet','Hogar / varios','Cuidado personal','Software / digital','Tarjeta / deuda','Comisiones / sanciones','Reembolso empresa','Inversión','Otros'];
@@ -148,24 +148,25 @@ function baseDB(){
 }
 let syncTimer=null;
 let db=JSON.parse(localStorage.getItem(KEY)||'null');
-window.db=db;
-db.categoryMeta=db.categoryMeta||{};
-db.conceptMeta=db.conceptMeta||{};
-db.typeConfig=db.typeConfig||{
-  Gasto:{label:"Gasto",icon:"💸",enabled:true},
-  Ingreso:{label:"Ingreso",icon:"💰",enabled:true},
-  Traspaso:{label:"Traspaso",icon:"🔄",enabled:true},
-  Inversión:{label:"Inversión",icon:"📈",enabled:true}
-};
 
 if(!db){
-  // V20 starts deliberately empty. It never imports the old populated databases.
   db=baseDB();
   window.db=db;
   save();
+}else{
+  window.db=db;
+  db.categoryMeta=db.categoryMeta||{};
+  db.conceptMeta=db.conceptMeta||{};
+  db.typeConfig=db.typeConfig||{
+    Gasto:{label:"Gasto",icon:"💸",enabled:true},
+    Ingreso:{label:"Ingreso",icon:"💰",enabled:true},
+    Traspaso:{label:"Traspaso",icon:"🔄",enabled:true},
+    Inversión:{label:"Inversión",icon:"📈",enabled:true}
+  };
 }
-if(db.version!==20){
-  db.version=20;
+
+if(db.version!==22){
+  db.version=22;
   db.netWorthHistory=db.netWorthHistory||[];
   db.budgets=db.budgets||{};
   db.recurring=db.recurring||[];
@@ -316,10 +317,22 @@ function manageRecurring(){
   alert('Recurrente añadido.');
 }
 
-function openSettings(){document.getElementById('settings').classList.add('show');catalogRefresh();loadSyncFields();document.getElementById('settingsAccounts').innerHTML=db.accounts.map((a,i)=>`<div style="display:grid;grid-template-columns:1fr 140px 150px;gap:8px;margin:7px 0;align-items:center"><input value="${a}" onchange="renameAccount(${i},this.value)"><input type="number" step="0.01" value="${db.opening[a]||0}" onchange="setOpening('${a.replaceAll("'","\\'")}',this.value)"><select onchange="setAccountKind('${a.replaceAll("'","\\'")}',this.value)"><option value="normal" ${accountKind(a)==='normal'?'selected':''}>Cuenta normal</option><option value="investment" ${accountKind(a)==='investment'?'selected':''}>Cuenta inversión</option></select></div>`).join('')}
+function openSettings(){document.getElementById('settings').classList.add('show');catalogRefresh();loadSyncFields();document.getElementById('settingsAccounts').innerHTML=db.accounts.map((a,i)=>`<div style="display:grid;grid-template-columns:1fr 140px 150px 105px;gap:8px;margin:7px 0;align-items:center"><input value="${a}" onchange="renameAccount(${i},this.value)"><input type="number" step="0.01" value="${db.opening[a]||0}" onchange="setOpening('${a.replaceAll("'","\\'")}',this.value)"><select onchange="setAccountKind('${a.replaceAll("'","\\'")}',this.value)"><option value="normal" ${accountKind(a)==='normal'?'selected':''}>Cuenta normal</option><option value="investment" ${accountKind(a)==='investment'?'selected':''}>Cuenta inversión</option></select><button class="danger" onclick="deleteAccount(${i})">Eliminar</button></div>`).join('')}
 function closeSettings(){document.getElementById('settings').classList.remove('show');render()}function renameAccount(i,v){const old=db.accounts[i];if(!v||db.accounts.includes(v)&&v!==old)return;db.accounts[i]=v;ensureAccountMeta();db.accountMeta[v]=db.accountMeta[old]||{kind:'normal'};delete db.accountMeta[old];db.opening[v]=db.opening[old]||0;delete db.opening[old];db.ops.forEach(o=>{if(o.origin===old)o.origin=v;if(o.dest===old)o.dest=v});db.investments.forEach(x=>{if(x.account===old)x.account=v});save()}
+function deleteAccount(i){
+  const a=db.accounts[i]; if(!a)return;
+  const usedOps=(db.ops||[]).some(o=>o.origin===a||o.dest===a);
+  const usedInv=(db.investments||[]).some(x=>x.account===a);
+  if(usedOps||usedInv){alert('No se puede eliminar esta cuenta porque tiene movimientos o datos asociados. Puedes desactivarla/cambiar su tipo sin perder el historial.');return;}
+  if(!confirm('¿Eliminar definitivamente la cuenta "'+a+'"?'))return;
+  db.accounts.splice(i,1); delete db.opening[a]; delete db.accountMeta[a];
+  save(); openSettings();
+}
 function setAccountKind(a,v){ensureAccountMeta();db.accountMeta[a]={kind:v==='investment'?'investment':'normal'};save();openSettings()} function setOpening(a,v){db.opening[a]=Number(v)||0;save()}function addAccount(){const a=prompt('Nombre de la cuenta');if(a&&!db.accounts.includes(a)){db.accounts.push(a);db.opening[a]=0;db.accountMeta=db.accountMeta||{};db.accountMeta[a]={kind:'normal'};save();openSettings()}}function addConcept(){const c=prompt('Nombre del concepto');if(c&&c.trim()&&!db.concepts.includes(c.trim())){db.concepts.push(c.trim());db.concepts.sort((a,b)=>a.localeCompare(b,'es'));save();openSettings()}}function addCategory(){const c=prompt('Nombre de la categoría');if(c&&!db.cats.includes(c)){db.cats.push(c);save();openSettings()}}
-function restoreBaseData(){if(!confirm('Esto sustituirá los datos actuales por una base completamente vacía. ¿Continuar?'))return;db=baseDB();window.db=db;save();closeSettings();render()}
+function restoreBaseData(){
+  if(!confirm('Esto sustituirá los datos actuales por una base completamente vacía. ¿Continuar?'))return;
+  db=baseDB(); window.db=db; save(); closeSettings(); render();
+}
 
 function exportBackup(){
   const payload={app:"Gastos",version:14,exportedAt:new Date().toISOString(),data:db};
@@ -394,7 +407,13 @@ function startMarketRefresh(){
 }
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&db.market?.interval)startMarketRefresh()});
 startMarketRefresh();
-function clearAll(){if(confirm('¿Borrar absolutamente todos los datos de la aplicación?')){localStorage.removeItem(KEY);localStorage.removeItem("gastosSyncConfig");db=baseDB();window.db=db;save();location.reload()}}
+function clearAll(){
+  if(confirm('¿Borrar absolutamente todos los datos de la aplicación?')){
+    localStorage.removeItem(KEY);
+    localStorage.removeItem("gastosSyncConfig");
+    db=baseDB(); window.db=db; save(); location.reload();
+  }
+}
 render();
 </script>
 <div id="roadmapModal" class="modal">
@@ -459,16 +478,22 @@ function catalogRefresh(){
   const typ=document.getElementById("catalogTypeList");
   if(cat) cat.innerHTML="<b>Categorías</b>"+(db.cats||[]).map((c,i)=>{
     const on=db.categoryMeta[c]?.enabled!==false;
-    return `<div style="display:flex;gap:6px;align-items:center;margin:6px 0"><span style="flex:1">${c}</span><button class="secondary" onclick="catalogRenameCategory(${i})">Renombrar</button><button class="secondary" onclick="catalogToggleCategory('${escQ(c)}')">${on?"Desactivar":"Activar"}</button></div>`;
+    return `<div style="display:flex;gap:6px;align-items:center;margin:6px 0"><span style="flex:1">${c}</span><button class="secondary" onclick="catalogRenameCategory(${i})">Renombrar</button><button class="danger" onclick="catalogDeleteCategory(${i})">Eliminar</button><button class="secondary" onclick="catalogToggleCategory('${escQ(c)}')">${on?"Desactivar":"Activar"}</button></div>`;
   }).join("");
   if(con) con.innerHTML="<b>Conceptos</b>"+(db.concepts||[]).map((c,i)=>{
     const on=db.conceptMeta[c]?.enabled!==false;
-    return `<div style="display:flex;gap:6px;align-items:center;margin:6px 0"><span style="flex:1">${c}</span><button class="secondary" onclick="catalogRenameConcept(${i})">Renombrar</button><button class="secondary" onclick="catalogToggleConcept('${escQ(c)}')">${on?"Desactivar":"Activar"}</button></div>`;
+    return `<div style="display:flex;gap:6px;align-items:center;margin:6px 0"><span style="flex:1">${c}</span><button class="secondary" onclick="catalogRenameConcept(${i})">Renombrar</button><button class="danger" onclick="catalogDeleteConcept(${i})">Eliminar</button><button class="secondary" onclick="catalogToggleConcept('${escQ(c)}')">${on?"Desactivar":"Activar"}</button></div>`;
   }).join("");
   if(typ) typ.innerHTML="<b>Tipos de movimiento</b>"+Object.entries(db.typeConfig||{}).map(([k,v])=>
-    `<div style="display:flex;gap:6px;align-items:center;margin:6px 0"><span style="flex:1">${v.icon||"•"} ${v.label||k}</span><button class="secondary" onclick="catalogRenameType('${escQ(k)}')">Renombrar</button><button class="secondary" onclick="catalogToggleType('${escQ(k)}')">${v.enabled===false?"Activar":"Desactivar"}</button></div>`).join("");
+    `<div style="display:flex;gap:6px;align-items:center;margin:6px 0"><span style="flex:1">${v.icon||"•"} ${v.label||k}</span><button class="secondary" onclick="catalogRenameType('${escQ(k)}')">Renombrar</button><button class="danger" onclick="catalogDeleteType('${escQ(k)}')">Eliminar</button><button class="secondary" onclick="catalogToggleType('${escQ(k)}')">${v.enabled===false?"Activar":"Desactivar"}</button></div>`).join("");
 }
 function escQ(s){return String(s).replaceAll("\\","\\\\").replaceAll("'","\\'")}
+function catalogDeleteCategory(i){
+  const c=db.cats[i]; if(!c)return;
+  if((db.ops||[]).some(o=>o.cat===c)){alert('No se puede eliminar esta categoría porque está usada en movimientos. Puedes desactivarla para conservar el historial.');return;}
+  if(!confirm('¿Eliminar definitivamente la categoría "'+c+'"?'))return;
+  db.cats.splice(i,1); delete db.categoryMeta[c]; save(); catalogRefresh();
+}
 function catalogAddCategory(){
   const n=prompt("Nombre de la nueva categoría"); if(!n)return;
   const v=n.trim(); if(!v||db.cats.includes(v))return alert("Ese nombre ya existe.");
@@ -483,6 +508,12 @@ function catalogRenameCategory(i){
 function catalogToggleCategory(c){
   db.categoryMeta[c]={...(db.categoryMeta[c]||{}),enabled:db.categoryMeta[c]?.enabled===false}; save(); catalogRefresh();
 }
+function catalogDeleteConcept(i){
+  const c=db.concepts[i]; if(!c)return;
+  if((db.ops||[]).some(o=>o.concept===c||o.desc===c)){alert('No se puede eliminar este concepto porque está usado en movimientos. Puedes desactivarlo para conservar el historial.');return;}
+  if(!confirm('¿Eliminar definitivamente el concepto "'+c+'"?'))return;
+  db.concepts.splice(i,1); delete db.conceptMeta[c]; save(); catalogRefresh();
+}
 function catalogAddConcept(){
   const n=prompt("Nombre del nuevo concepto"); if(!n)return;
   const v=n.trim(); if(!v||db.concepts.includes(v))return alert("Ese nombre ya existe.");
@@ -496,6 +527,12 @@ function catalogRenameConcept(i){
 }
 function catalogToggleConcept(c){
   db.conceptMeta[c]={...(db.conceptMeta[c]||{}),enabled:db.conceptMeta[c]?.enabled===false}; save(); catalogRefresh();
+}
+function catalogDeleteType(k){
+  if(['Gasto','Ingreso','Traspaso','Inversión'].includes(k)){alert('Los 4 tipos básicos no se pueden eliminar porque son necesarios para la contabilidad. Puedes desactivarlos.');return;}
+  if((db.ops||[]).some(o=>o.type===k)){alert('No se puede eliminar este tipo porque está usado en movimientos. Puedes desactivarlo para conservar el historial.');return;}
+  if(!confirm('¿Eliminar definitivamente el tipo "'+k+'"?'))return;
+  delete db.typeConfig[k]; save(); catalogRefresh();
 }
 function catalogAddType(){
   const n=prompt("Nombre del nuevo tipo de movimiento"); if(!n)return;
