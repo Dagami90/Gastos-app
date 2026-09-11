@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="theme-color" content="#111827"><link rel="manifest" href="manifest.json"><title>Gastos — Control Financiero</title>
+<meta name="theme-color" content="#111827"><link rel="manifest" href="manifest.json"><title>Gastos — Control Financiero · V17</title>
 <style>
 :root{--bg:#f5f7fb;--card:#fff;--ink:#111827;--muted:#6b7280;--line:#e5e7eb;--accent:#111827;--green:#15803d;--red:#b91c1c;--yellow:#a16207;--blue:#1d4ed8}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);font-family:Inter,system-ui,-apple-system,Segoe UI,sans-serif;color:var(--ink)}
@@ -271,7 +271,7 @@ function manageRecurring(){
   alert('Recurrente añadido.');
 }
 
-function openSettings(){document.getElementById('settings').classList.add('show');loadSyncFields();loadMarketFields();document.getElementById('settingsAccounts').innerHTML=db.accounts.map((a,i)=>`<div style="display:grid;grid-template-columns:1fr 130px;gap:8px;margin:7px 0"><input value="${a}" onchange="renameAccount(${i},this.value)"><input type="number" step="0.01" value="${db.opening[a]||0}" onchange="setOpening('${a.replaceAll("'","\\'")}',this.value)"></div>`).join('');document.getElementById('settingsCats').innerHTML=db.cats.map((c,i)=>`<div style="display:flex;gap:8px;margin:7px 0"><input value="${c}" onchange="db.cats[${i}]=this.value;save()"><button class="danger" onclick="db.cats.splice(${i},1);save();openSettings()">×</button></div>`).join('');document.getElementById('settingsConcepts').innerHTML=db.concepts.map((c,i)=>`<div style="display:flex;gap:8px;margin:7px 0"><input value="${c}" onchange="db.concepts[${i}]=this.value;save()"><button class="danger" onclick="db.concepts.splice(${i},1);save();openSettings()">×</button></div>`).join('');document.getElementById('investmentAccounts').innerHTML=db.accounts.filter(a=>/trade republic/i.test(a)).map(a=>`<div class="account" style="margin:7px 0"><span>${a}</span><b>${euro(balance(a))}</b></div>`).join('')}
+function openSettings(){document.getElementById('settings').classList.add('show');catalogRefresh();loadSyncFields();loadMarketFields();document.getElementById('settingsAccounts').innerHTML=db.accounts.map((a,i)=>`<div style="display:grid;grid-template-columns:1fr 130px;gap:8px;margin:7px 0"><input value="${a}" onchange="renameAccount(${i},this.value)"><input type="number" step="0.01" value="${db.opening[a]||0}" onchange="setOpening('${a.replaceAll("'","\\'")}',this.value)"></div>`).join('');document.getElementById('investmentAccounts').innerHTML=db.accounts.filter(a=>/trade republic/i.test(a)).map(a=>`<div class="account" style="margin:7px 0"><span>${a}</span><b>${euro(balance(a))}</b></div>`).join('')}
 function closeSettings(){document.getElementById('settings').classList.remove('show');render()}function renameAccount(i,v){const old=db.accounts[i];if(!v||db.accounts.includes(v)&&v!==old)return;db.accounts[i]=v;db.opening[v]=db.opening[old]||0;delete db.opening[old];db.ops.forEach(o=>{if(o.origin===old)o.origin=v;if(o.dest===old)o.dest=v});db.investments.forEach(x=>{if(x.account===old)x.account=v});save()}
 function setOpening(a,v){db.opening[a]=Number(v)||0;save()}function addAccount(){const a=prompt('Nombre de la cuenta');if(a&&!db.accounts.includes(a)){db.accounts.push(a);db.opening[a]=0;save();openSettings()}}function addConcept(){const c=prompt('Nombre del concepto');if(c&&c.trim()&&!db.concepts.includes(c.trim())){db.concepts.push(c.trim());db.concepts.sort((a,b)=>a.localeCompare(b,'es'));save();openSettings()}}function addCategory(){const c=prompt('Nombre de la categoría');if(c&&!db.cats.includes(c)){db.cats.push(c);save();openSettings()}}
 function restoreBaseData(){if(!confirm('Esto sustituirá los datos de esta versión por la base de septiembre 2026 que me has pasado. ¿Continuar?'))return;db=baseDB();window.db=db;save();closeSettings();render()}
@@ -464,7 +464,6 @@ function catalogRenameType(k){
 function catalogToggleType(k){
   db.typeConfig[k].enabled=db.typeConfig[k].enabled===false; save(); catalogRefresh();
 }
-const _oldOpenSettings=window.openSettings;
-window.openSettings=function(){_oldOpenSettings(); setTimeout(catalogRefresh,0);}
+
 </script>
 </body></html>
