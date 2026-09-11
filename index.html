@@ -25,19 +25,15 @@ table{width:100%;border-collapse:collapse;background:#fff;border-radius:13px;ove
 
 <div class="modal" id="settings"><div class="sheet"><h2>Configuración</h2><div class="notice ok">Base actualizada con los datos que me has pasado: saldos iniciales, movimientos de septiembre, dos cuentas de Trade Republic, posiciones, unidades, precios medios y staking.</div>
 <div class="section"><h2>Cuentas</h2><div id="settingsAccounts"></div><button class="secondary" onclick="addAccount()">＋ Añadir cuenta</button></div>
-<div class="section"><h2>Categorías de gasto</h2><div id="settingsCats"></div><button class="secondary" onclick="addCategory()">＋ Añadir categoría</button></div>
-<div class="section"><h2>Conceptos de gasto</h2><div id="settingsConcepts"></div>
-<div id="advancedCatalogs" class="section" style="margin-top:14px">
-<h3>Catálogos personalizables</h3>
-<p class="small">Puedes añadir, renombrar o desactivar elementos. Desactivar no borra movimientos anteriores.</p>
+<div class="section"><h2>Catálogos</h2>
+<p class="small">Aquí defines la estructura de tus operaciones: <b>Tipo de movimiento → Categoría → Concepto</b>. Puedes renombrar o desactivar elementos sin borrar el historial.</p>
 <div id="catalogCategoryList"></div>
 <button class="secondary" onclick="catalogAddCategory()">＋ Nueva categoría</button>
-<div id="catalogConceptList" style="margin-top:12px"></div>
+<div id="catalogConceptList" style="margin-top:14px"></div>
 <button class="secondary" onclick="catalogAddConcept()">＋ Nuevo concepto</button>
-<div id="catalogTypeList" style="margin-top:12px"></div>
+<div id="catalogTypeList" style="margin-top:14px"></div>
 <button class="secondary" onclick="catalogAddType()">＋ Nuevo tipo</button>
 </div>
-<button class="secondary" onclick="addConcept()">＋ Añadir concepto</button></div>
 <div class="section"><h2>Cuentas de inversión</h2><div id="investmentAccounts"></div></div>
 <div class="section"><h2>Mercados e inversiones</h2>
 <p class="small">Cripto puede actualizarse directamente con CoinGecko; acciones/ETF pueden usar Twelve Data si añades una API key. Twelve Data cubre acciones, ETF, FX y cripto. cite no-render</p>
