@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="theme-color" content="#111827"><link rel="manifest" href="manifest.json"><title>GastosApp · V22 LIMPIA</title>
+<meta name="theme-color" content="#111827"><link rel="manifest" href="manifest.json"><title>GastosApp · V23 · Persistencia + Drive · FIX</title>
 <style>
 :root{--bg:#f5f7fb;--card:#fff;--ink:#111827;--muted:#6b7280;--line:#e5e7eb;--accent:#111827;--green:#15803d;--red:#b91c1c;--yellow:#a16207;--blue:#1d4ed8}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);font-family:Inter,system-ui,-apple-system,Segoe UI,sans-serif;color:var(--ink)}
@@ -108,7 +108,7 @@ try {
   }
 } catch(e) {}
 
-const KEY='gastosDB_clean22';
+const KEY='gastosDB_v23';
 const DEFAULT_ACCOUNTS=['Principal D','Trade Republic','Suscripciones','Santander','Ahorro Piso','Efectivo / En Mano','Efectivo Piso','Trade Republic A','Cuenta Principal A'];
 const DEFAULT_OPENING={'Principal D':0,'Trade Republic':2.76,'Suscripciones':293.87,'Santander':59.37,'Ahorro Piso':1357.68,'Efectivo / En Mano':3320,'Efectivo Piso':500,'Trade Republic A':5000,'Cuenta Principal A':191.81};
 const DEFAULT_CATS=['Alimentación','Restauración','Ocio','Parking','Coche / suscripciones','Combustible','Compras online','Mascotas','Empresa / combustible','Empresa','Formación','Hogar / internet','Hogar / varios','Cuidado personal','Software / digital','Tarjeta / deuda','Comisiones / sanciones','Reembolso empresa','Inversión','Otros'];
@@ -131,30 +131,130 @@ const BASE_INV=[
 function baseDB(){
   return {
     accounts:[],cats:[],concepts:[],opening:{},ops:[],investments:[],prices:{},
-    categoryMeta:{},conceptMeta:{},accountMeta:{},accountHistory:[],netWorthHistory:[],
-    budgets:{},recurring:[],market:{provider:'coingecko+twelvedata',apiKey:'',interval:15},
+    categoryMeta:{},conceptMeta:{},accountMeta:{},
+    accountHistory:[],netWorthHistory:[],budgets:{},recurring:[],
+    market:{provider:'coingecko+twelvedata',apiKey:'',interval:15},
     typeConfig:{
       Gasto:{label:"Gasto",icon:"💸",enabled:true},
       Ingreso:{label:"Ingreso",icon:"💰",enabled:true},
       Traspaso:{label:"Traspaso",icon:"🔄",enabled:true},
       Inversión:{label:"Inversión",icon:"📈",enabled:true}
-    },version:22
+    },
+    version:23
   }
 }
 let syncTimer=null;
 let db=JSON.parse(localStorage.getItem(KEY)||'null');
 if(!db){
   db=baseDB();
-  window.db=db;
-  save();
-}else{
-  window.db=db;
-  db.accounts=db.accounts||[]; db.cats=db.cats||[]; db.concepts=db.concepts||[];
-  db.opening=db.opening||{}; db.ops=db.ops||[]; db.investments=db.investments||[]; db.prices=db.prices||{};
-  db.categoryMeta=db.categoryMeta||{}; db.conceptMeta=db.conceptMeta||{}; db.accountMeta=db.accountMeta||{};
-  db.netWorthHistory=db.netWorthHistory||[]; db.budgets=db.budgets||{}; db.recurring=db.recurring||[];
-  db.market=db.market||{provider:'coingecko+twelvedata',apiKey:'',interval:15};
-  db.typeConfig=db.typeConfig||baseDB().typeConfig;
+}
+window.db=db;
+
+db.accounts=db.accounts||[];
+db.cats=db.cats||[];
+db.concepts=db.concepts||[];
+db.opening=db.opening||{};
+db.ops=db.ops||[];
+db.investments=db.investments||[];
+db.prices=db.prices||{};
+db.categoryMeta=db.categoryMeta||{};
+db.conceptMeta=db.conceptMeta||{};
+db.accountMeta=db.accountMeta||{};
+db.accountHistory=db.accountHistory||[];
+db.netWorthHistory=db.netWorthHistory||[];
+db.budgets=db.budgets||{};
+db.recurring=db.recurring||[];
+db.market=db.market||{provider:'coingecko+twelvedata',apiKey:'',interval:15};
+db.typeConfig=db.typeConfig||baseDB().typeConfig;
+db.version=23;
+
+function save(){
+  localStorage.setItem(KEY,JSON.stringify(db));
+  recordNetWorthSnapshot();
+  recordAccountSnapshot();
+  if(localStorage.getItem("gastosAutoSync")!=="false"){
+    clearTimeout(syncTimer);
+    syncTimer=setTimeout(()=>syncToDrive(true),2500);
+  }
+}
+function recordNetWorthSnapshot(){
+  const day=new Date().toISOString().slice(0,10);
+  const value=netWorth();
+  db.netWorthHistory=db.netWorthHistory||[];
+  const last=db.netWorthHistory[db.netWorthHistory.length-1];
+  if(!last || last.date!==day) db.netWorthHistory.push({date:day,value});
+  else last.value=value;
+  if(db.netWorthHistory.length>400) db.netWorthHistory=db.netWorthHistory.slice(-400);
+  localStorage.setItem(KEY,JSON.stringify(db));
+}
+function ensureAccountMeta(){
+  db.accountMeta=db.accountMeta||{};
+  let changed=false;
+  for(const a of db.accounts){
+    if(!db.accountMeta[a]){
+      db.accountMeta[a]={kind:/trade republic|broker|degiro|binance|coinbase|revolut investment/i.test(a)?'investment':'normal'};
+      changed=true;
+    }
+  }
+  if(changed) localStorage.setItem(KEY,JSON.stringify(db));
+}
+function accountKind(a){ensureAccountMeta();return db.accountMeta[a]?.kind==='investment'?'investment':'normal'}
+function normalAccounts(){return db.accounts.filter(a=>accountKind(a)==='normal')}
+function investmentAccounts(){return db.accounts.filter(a=>accountKind(a)==='investment')}
+function investedCapitalByAccount(a){return db.ops.filter(o=>o.type==='Inversión'&&o.origin===a).reduce((s,o)=>s+(Number(o.amount)||0),0)}
+function totalInvestmentAccount(a){return balance(a)+investedCapitalByAccount(a)}
+function totalInvestedCapital(){return investmentAccounts().reduce((s,a)=>s+investedCapitalByAccount(a),0)}
+function investmentOps(){return db.ops.filter(o=>o.type==='Inversión'&&accountKind(o.origin)==='investment').sort((a,b)=>b.date.localeCompare(a.date))}
+function recordAccountSnapshot(){
+  ensureAccountMeta();
+  const day=new Date().toISOString().slice(0,10);
+  db.accountHistory=db.accountHistory||[];
+  const snap={date:day,accounts:{}};
+  for(const a of db.accounts){
+    snap.accounts[a]=accountKind(a)==='investment'?totalInvestmentAccount(a):balance(a);
+  }
+  const last=db.accountHistory[db.accountHistory.length-1];
+  if(!last || last.date!==day) db.accountHistory.push(snap); else last.accounts=snap.accounts;
+  if(db.accountHistory.length>400) db.accountHistory=db.accountHistory.slice(-400);
+  localStorage.setItem(KEY,JSON.stringify(db));
+}
+
+function setAutoSync(v){localStorage.setItem("gastosAutoSync",v?"true":"false");if(v)syncToDrive(true)}
+function netWorth(){return db.accounts.reduce((s,a)=>s+(accountKind(a)==='investment'?totalInvestmentAccount(a):balance(a)),0)}
+function euro(n){return new Intl.NumberFormat('es-ES',{style:'currency',currency:'EUR'}).format(Number(n)||0)}function monthName(ym){return new Date(ym+'-01T12:00:00').toLocaleDateString('es-ES',{month:'long',year:'numeric'}).replace(/^./,x=>x.toUpperCase())}
+function balance(acc){let b=Number(db.opening[acc]||0);for(const o of db.ops){if(o.origin===acc){if(o.type==='Ingreso')b+=o.amount;else if(o.type==='Gasto'||o.type==='Inversión'||o.type==='Traspaso')b-=o.amount}if(o.type==='Traspaso'&&o.dest===acc)b+=o.amount}return b}
+function totals(ym){let i=0,g=0,inv=0;for(const o of db.ops){if(o.date.slice(0,7)!==ym)continue;if(o.type==='Ingreso')i+=o.amount;if(o.type==='Gasto')g+=o.amount;if(o.type==='Inversión')inv+=o.amount}return{i,g,inv,r:i-g}}
+function portfolioValue(){return totalInvestedCapital()}function investedCost(){return totalInvestedCapital()}
+function showView(v){if(v==='movimientos')showMovimientos();else if(v==='cuentas')showCuentas();else render()}
+function chartSeries(){
+  ensureAccountMeta();
+  const history=(db.accountHistory||[]).slice(-120);
+  const names=db.accounts.slice();
+  return {history,names};
+}
+function drawWealthChart(){
+  const canvas=document.getElementById('wealthChart'); if(!canvas)return;
+  const ctx=canvas.getContext('2d'), rect=canvas.getBoundingClientRect(), dpr=window.devicePixelRatio||1;
+  canvas.width=Math.max(1,rect.width*dpr); canvas.height=Math.max(1,rect.height*dpr); ctx.setTransform(dpr,0,0,dpr,0,0);
+  const W=rect.width,H=rect.height,pad={l:48,r:18,t:18,b:34};
+  ctx.clearRect(0,0,W,H);
+  const {history,names}=chartSeries();
+  if(!history.length){ctx.fillStyle='#94a3b8';ctx.font='13px system-ui';ctx.fillText('Todavía no hay histórico suficiente.',20,30);return;}
+  const vals=[]; names.forEach(n=>history.forEach(h=>vals.push(Number(h.accounts?.[n]||0))));
+  let min=Math.min(0,...vals), max=Math.max(1,...vals); if(max===min)max=min+1;
+  const span=max-min, yMin=min-span*.08, yMax=max+span*.08;
+  const x=i=>pad.l+(i/(Math.max(1,history.length-1)))*(W-pad.l-pad.r);
+  const y=v=>H-pad.b-((v-yMin)/(yMax-yMin))*(H-pad.t-pad.b);
+  ctx.strokeStyle='#243244';ctx.lineWidth=1;ctx.font='10px system-ui';ctx.fillStyle='#94a3b8';
+  for(let j=0;j<5;j++){const yy=pad.t+j*(H-pad.t-pad.b)/4;ctx.beginPath();ctx.moveTo(pad.l,yy);ctx.lineTo(W-pad.r,yy);ctx.stroke();const v=yMax-(yMax-yMin)*j/4;ctx.fillText(euro(v).replace('€','€'),4,yy+3);}
+  const palette=['#3b82f6','#a855f7','#22c55e','#f59e0b','#ef4444','#06b6d4','#eab308','#ec4899','#14b8a6','#8b5cf6'];
+  names.forEach((n,idx)=>{
+    ctx.beginPath(); history.forEach((h,i)=>{const v=Number(h.accounts?.[n]||0);const xx=x(i),yy=y(v);i?ctx.lineTo(xx,yy):ctx.moveTo(xx,yy);});
+    ctx.strokeStyle=palette[idx%palette.length];ctx.lineWidth=2;ctx.stroke();
+  });
+  ctx.fillStyle='#94a3b8';ctx.font='10px system-ui';
+  const step=Math.max(1,Math.floor(history.length/6));
+  history.forEach((h,i)=>{if(i%step===0||i===history.length-1)ctx.fillText(h.date.slice(5),x(i)-12,H-10);});
 }
 function render(){
   ensureAccountMeta();
@@ -208,6 +308,7 @@ function restoreBaseData(){
   if(!confirm('Esto sustituirá todos los datos actuales por una base completamente vacía. ¿Continuar?'))return;
   db=baseDB(); window.db=db; save(); closeSettings(); render();
 }
+
 function exportBackup(){
   const payload={app:"Gastos",version:14,exportedAt:new Date().toISOString(),data:db};
   const blob=new Blob([JSON.stringify(payload,null,2)],{type:"application/json"});
@@ -281,7 +382,11 @@ function startMarketRefresh(){
 }
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&db.market?.interval)startMarketRefresh()});
 startMarketRefresh();
-function clearAll(){if(confirm('¿Borrar todas las operaciones, cuentas e inversiones de esta versión?')){localStorage.removeItem(KEY);localStorage.removeItem("gastosSyncConfig");db={accounts:[],cats:[],concepts:[],opening:{},ops:[],investments:[],prices:{},version:13};save();location.reload()}}
+function clearAll(){
+  if(!confirm('¿Borrar absolutamente todos los datos de la aplicación?'))return;
+  localStorage.removeItem(KEY);
+  db=baseDB(); window.db=db; save(); location.reload();
+}
 render();
 </script>
 <div id="roadmapModal" class="modal">
