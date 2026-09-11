@@ -26,7 +26,18 @@ table{width:100%;border-collapse:collapse;background:#fff;border-radius:13px;ove
 <div class="modal" id="settings"><div class="sheet"><h2>Configuración</h2><div class="notice ok">Base actualizada con los datos que me has pasado: saldos iniciales, movimientos de septiembre, dos cuentas de Trade Republic, posiciones, unidades, precios medios y staking.</div>
 <div class="section"><h2>Cuentas</h2><div id="settingsAccounts"></div><button class="secondary" onclick="addAccount()">＋ Añadir cuenta</button></div>
 <div class="section"><h2>Categorías de gasto</h2><div id="settingsCats"></div><button class="secondary" onclick="addCategory()">＋ Añadir categoría</button></div>
-<div class="section"><h2>Tipos de movimiento</h2><div id="settingsTypes"></div><button class="secondary" onclick="addType()">＋ Añadir tipo</button></div><div class="section"><h2>Conceptos de gasto</h2><div id="settingsConcepts"></div><button class="secondary" onclick="addConcept()">＋ Añadir concepto</button></div>
+<div class="section"><h2>Conceptos de gasto</h2><div id="settingsConcepts"></div>
+<div id="advancedCatalogs" class="section" style="margin-top:14px">
+<h3>Catálogos personalizables</h3>
+<p class="small">Puedes añadir, renombrar o desactivar elementos. Desactivar no borra movimientos anteriores.</p>
+<div id="catalogCategoryList"></div>
+<button class="secondary" onclick="catalogAddCategory()">＋ Nueva categoría</button>
+<div id="catalogConceptList" style="margin-top:12px"></div>
+<button class="secondary" onclick="catalogAddConcept()">＋ Nuevo concepto</button>
+<div id="catalogTypeList" style="margin-top:12px"></div>
+<button class="secondary" onclick="catalogAddType()">＋ Nuevo tipo</button>
+</div>
+<button class="secondary" onclick="addConcept()">＋ Añadir concepto</button></div>
 <div class="section"><h2>Cuentas de inversión</h2><div id="investmentAccounts"></div></div>
 <div class="section"><h2>Mercados e inversiones</h2>
 <p class="small">Cripto puede actualizarse directamente con CoinGecko; acciones/ETF pueden usar Twelve Data si añades una API key. Twelve Data cubre acciones, ETF, FX y cripto. cite no-render</p>
@@ -113,12 +124,14 @@ function baseDB(){const db={accounts:[...DEFAULT_ACCOUNTS],cats:[...DEFAULT_CATS
 let syncTimer=null;
 let db=JSON.parse(localStorage.getItem(KEY)||'null');
 window.db=db;
-if(!db.typeConfig) db.typeConfig={Gasto:{label:"Gasto",icon:"💸",enabled:true},Ingreso:{label:"Ingreso",icon:"💰",enabled:true},Traspaso:{label:"Traspaso",icon:"🔄",enabled:true},Inversión:{label:"Inversión",icon:"📈",enabled:true}};
-if(!db.categoryMeta) db.categoryMeta={};
-if(!db.conceptMeta) db.conceptMeta={};
-const marketMap={"S&P 500 EUR (Acc)":{isin:"LU1681048804",ticker:"AUM5.DE",currency:"EUR"},"Semiconductor USD (Acc)":{isin:"IE00BMC38736",ticker:"VVSM.DE",currency:"EUR"},"NASDAQ100 USD (Acc)":{isin:"IE00B53SZB19",ticker:"CNDX.NA",currency:"USD"},"Cipher Mining":{isin:"US17253J1060",ticker:"CIFR",currency:"USD"},"Physical Gold USD (Acc)":{isin:"IE00B4ND3602",ticker:"PPFB.DE",currency:"USD"},"Global Water USD (Acc)":{isin:"IE000CFH1JX2",ticker:"H2OA.DE",currency:"EUR"},"S&P 500 Information Tech USD (Acc)":{isin:"IE00B3WJKG14",ticker:"QDVE.DE",currency:"USD"}};
-(db.investments||[]).forEach(x=>{const m=marketMap[x.name];if(m){x.isin=x.isin||m.isin;x.marketSymbol=x.marketSymbol||m.ticker;x.currency=x.currency||m.currency;}});
-save();
+db.categoryMeta=db.categoryMeta||{};
+db.conceptMeta=db.conceptMeta||{};
+db.typeConfig=db.typeConfig||{
+  Gasto:{label:"Gasto",icon:"💸",enabled:true},
+  Ingreso:{label:"Ingreso",icon:"💰",enabled:true},
+  Traspaso:{label:"Traspaso",icon:"🔄",enabled:true},
+  Inversión:{label:"Inversión",icon:"📈",enabled:true}
+};
 
 if(!db){
   const legacy=JSON.parse(localStorage.getItem('gastosDB_v7')||localStorage.getItem('gastosDB_v6')||'null');
@@ -262,24 +275,7 @@ function manageRecurring(){
   alert('Recurrente añadido.');
 }
 
-function openSettings(){
-document.getElementById('settings').classList.add('show');loadSyncFields();loadMarketFields();
-document.getElementById('settingsAccounts').innerHTML=db.accounts.map((a,i)=>`<div style="display:grid;grid-template-columns:1fr 130px;gap:8px;margin:7px 0"><input value="${a}" onchange="renameAccount(${i},this.value)"><input type="number" step="0.01" value="${db.opening[a]||0}" onchange="setOpening('${a.replaceAll("'","\\'")}',this.value)"></div>`).join('');
-document.getElementById('settingsCats').innerHTML=db.cats.map((c,i)=>{const on=db.categoryMeta?.[c]?.enabled!==false;return `<div style="display:grid;grid-template-columns:1fr 100px auto;gap:8px;margin:7px 0"><input value="${c}" onchange="renameCategory(${i},this.value)"><select onchange="setCategoryEnabled('${c.replaceAll("'","\\'")}',this.value==='true')"><option value="true" ${on?'selected':''}>Activa</option><option value="false" ${!on?'selected':''}>Inactiva</option></select><button class="secondary" onclick="renameCategory(${i},prompt('Nuevo nombre',db.cats[${i}]))">✎</button></div>`}).join('');
-document.getElementById('settingsConcepts').innerHTML=db.concepts.map((c,i)=>{const on=db.conceptMeta?.[c]?.enabled!==false;return `<div style="display:grid;grid-template-columns:1fr 100px auto;gap:8px;margin:7px 0"><input value="${c}" onchange="renameConcept(${i},this.value)"><select onchange="setConceptEnabled('${c.replaceAll("'","\\'")}',this.value==='true')"><option value="true" ${on?'selected':''}>Activo</option><option value="false" ${!on?'selected':''}>Inactivo</option></select><button class="secondary" onclick="renameConcept(${i},prompt('Nuevo nombre',db.concepts[${i}]))">✎</button></div>`}).join('');
-const st=document.getElementById('settingsTypes');if(st)st.innerHTML=Object.entries(db.typeConfig||{}).map(([k,v])=>`<div style="display:grid;grid-template-columns:1fr 70px 100px;gap:8px;margin:7px 0"><input value="${v.label||k}" onchange="db.typeConfig['${k}'].label=this.value;save()"><input value="${v.icon||''}" maxlength="2" onchange="db.typeConfig['${k}'].icon=this.value;save()"><select onchange="db.typeConfig['${k}'].enabled=this.value==='true';save()"><option value="true" ${v.enabled!==false?'selected':''}>Activo</option><option value="false" ${v.enabled===false?'selected':''}>Inactivo</option></select></div>`).join('');
-document.getElementById('investmentAccounts').innerHTML=db.accounts.filter(a=>/trade republic/i.test(a)).map(a=>`<div class="account" style="margin:7px 0"><span>${a}</span><b>${euro(balance(a))}</b></div>`).join('');
-}
-function renameAccount(i,v){const old=db.accounts[i];if(!v||db.accounts.includes(v)&&v!==old)return;db.accounts[i]=v;db.opening[v]=db.opening[old]||0;delete db.opening[old];db.ops.forEach(o=>{if(o.origin===old)o.origin=v;if(o.dest===old)o.dest=v});db.investments.forEach(x=>{if(x.account===old)x.account=v});save()}
-function setOpening(a,v){db.opening[a]=Number(v)||0;save()}
-function addAccount(){const a=prompt('Nombre de la cuenta');if(a&&a.trim()&&!db.accounts.includes(a.trim())){db.accounts.push(a.trim());db.opening[a.trim()]=0;save();openSettings()}}
-function addConcept(){const c=prompt('Nombre del concepto');if(c&&c.trim()&&!db.concepts.includes(c.trim())){c=c.trim();db.concepts.push(c);db.conceptMeta[c]={enabled:true};save();openSettings()}}
-function renameConcept(i,v){v=(v||'').trim();const old=db.concepts[i];if(!v||v===old||db.concepts.includes(v))return;db.concepts[i]=v;db.conceptMeta[v]=db.conceptMeta[old]||{enabled:true};delete db.conceptMeta[old];db.ops.forEach(o=>{if(o.concept===old)o.concept=v});save();openSettings()}
-function setConceptEnabled(c,on){db.conceptMeta[c]={...(db.conceptMeta[c]||{}),enabled:on};save()}
-function addCategory(){const c=prompt('Nombre de la categoría de gasto');if(c&&c.trim()&&!db.cats.includes(c.trim())){c=c.trim();db.cats.push(c);db.categoryMeta[c]={enabled:true};save();openSettings()}}
-function renameCategory(i,v){v=(v||'').trim();const old=db.cats[i];if(!v||v===old||db.cats.includes(v))return;db.cats[i]=v;db.categoryMeta[v]=db.categoryMeta[old]||{enabled:true};delete db.categoryMeta[old];db.ops.forEach(o=>{if(o.cat===old)o.cat=v});save();openSettings()}
-function setCategoryEnabled(c,on){db.categoryMeta[c]={...(db.categoryMeta[c]||{}),enabled:on};save()}
-function addType(){const k=prompt('Nombre del nuevo tipo de movimiento');if(k&&k.trim()&&!db.typeConfig[k.trim()]){k=k.trim();db.typeConfig[k]={label:k,icon:'•',enabled:true};save();openSettings()}}
+function openSettings(){document.getElementById('settings').classList.add('show');loadSyncFields();loadMarketFields();document.getElementById('settingsAccounts').innerHTML=db.accounts.map((a,i)=>`<div style="display:grid;grid-template-columns:1fr 130px;gap:8px;margin:7px 0"><input value="${a}" onchange="renameAccount(${i},this.value)"><input type="number" step="0.01" value="${db.opening[a]||0}" onchange="setOpening('${a.replaceAll("'","\\'")}',this.value)"></div>`).join('');document.getElementById('settingsCats').innerHTML=db.cats.map((c,i)=>`<div style="display:flex;gap:8px;margin:7px 0"><input value="${c}" onchange="db.cats[${i}]=this.value;save()"><button class="danger" onclick="db.cats.splice(${i},1);save();openSettings()">×</button></div>`).join('');document.getElementById('settingsConcepts').innerHTML=db.concepts.map((c,i)=>`<div style="display:flex;gap:8px;margin:7px 0"><input value="${c}" onchange="db.concepts[${i}]=this.value;save()"><button class="danger" onclick="db.concepts.splice(${i},1);save();openSettings()">×</button></div>`).join('');document.getElementById('investmentAccounts').innerHTML=db.accounts.filter(a=>/trade republic/i.test(a)).map(a=>`<div class="account" style="margin:7px 0"><span>${a}</span><b>${euro(balance(a))}</b></div>`).join('')}
 function closeSettings(){document.getElementById('settings').classList.remove('show');render()}function renameAccount(i,v){const old=db.accounts[i];if(!v||db.accounts.includes(v)&&v!==old)return;db.accounts[i]=v;db.opening[v]=db.opening[old]||0;delete db.opening[old];db.ops.forEach(o=>{if(o.origin===old)o.origin=v;if(o.dest===old)o.dest=v});db.investments.forEach(x=>{if(x.account===old)x.account=v});save()}
 function setOpening(a,v){db.opening[a]=Number(v)||0;save()}function addAccount(){const a=prompt('Nombre de la cuenta');if(a&&!db.accounts.includes(a)){db.accounts.push(a);db.opening[a]=0;save();openSettings()}}function addConcept(){const c=prompt('Nombre del concepto');if(c&&c.trim()&&!db.concepts.includes(c.trim())){db.concepts.push(c.trim());db.concepts.sort((a,b)=>a.localeCompare(b,'es'));save();openSettings()}}function addCategory(){const c=prompt('Nombre de la categoría');if(c&&!db.cats.includes(c)){db.cats.push(c);save();openSettings()}}
 function restoreBaseData(){if(!confirm('Esto sustituirá los datos de esta versión por la base de septiembre 2026 que me has pasado. ¿Continuar?'))return;db=baseDB();window.db=db;save();closeSettings();render()}
@@ -413,5 +409,66 @@ window.gastosDiagnostic=function(){
  }catch(e){issues.push(e.message)}
  return issues.length?issues:["OK"];
 }
+</script>
+
+<script>
+function catalogRefresh(){
+  const cat=document.getElementById("catalogCategoryList");
+  const con=document.getElementById("catalogConceptList");
+  const typ=document.getElementById("catalogTypeList");
+  if(cat) cat.innerHTML="<b>Categorías</b>"+(db.cats||[]).map((c,i)=>{
+    const on=db.categoryMeta[c]?.enabled!==false;
+    return `<div style="display:flex;gap:6px;align-items:center;margin:6px 0"><span style="flex:1">${c}</span><button class="secondary" onclick="catalogRenameCategory(${i})">Renombrar</button><button class="secondary" onclick="catalogToggleCategory('${escQ(c)}')">${on?"Desactivar":"Activar"}</button></div>`;
+  }).join("");
+  if(con) con.innerHTML="<b>Conceptos</b>"+(db.concepts||[]).map((c,i)=>{
+    const on=db.conceptMeta[c]?.enabled!==false;
+    return `<div style="display:flex;gap:6px;align-items:center;margin:6px 0"><span style="flex:1">${c}</span><button class="secondary" onclick="catalogRenameConcept(${i})">Renombrar</button><button class="secondary" onclick="catalogToggleConcept('${escQ(c)}')">${on?"Desactivar":"Activar"}</button></div>`;
+  }).join("");
+  if(typ) typ.innerHTML="<b>Tipos de movimiento</b>"+Object.entries(db.typeConfig||{}).map(([k,v])=>
+    `<div style="display:flex;gap:6px;align-items:center;margin:6px 0"><span style="flex:1">${v.icon||"•"} ${v.label||k}</span><button class="secondary" onclick="catalogRenameType('${escQ(k)}')">Renombrar</button><button class="secondary" onclick="catalogToggleType('${escQ(k)}')">${v.enabled===false?"Activar":"Desactivar"}</button></div>`).join("");
+}
+function escQ(s){return String(s).replaceAll("\\","\\\\").replaceAll("'","\\'")}
+function catalogAddCategory(){
+  const n=prompt("Nombre de la nueva categoría"); if(!n)return;
+  const v=n.trim(); if(!v||db.cats.includes(v))return alert("Ese nombre ya existe.");
+  db.cats.push(v); db.categoryMeta[v]={enabled:true}; save(); catalogRefresh();
+}
+function catalogRenameCategory(i){
+  const old=db.cats[i], n=prompt("Nuevo nombre de categoría",old); if(!n)return;
+  const v=n.trim(); if(!v||v===old)return; if(db.cats.includes(v))return alert("Ese nombre ya existe.");
+  db.cats[i]=v; db.categoryMeta[v]=db.categoryMeta[old]||{enabled:true}; delete db.categoryMeta[old];
+  (db.ops||[]).forEach(o=>{if(o.cat===old)o.cat=v}); save(); catalogRefresh();
+}
+function catalogToggleCategory(c){
+  db.categoryMeta[c]={...(db.categoryMeta[c]||{}),enabled:db.categoryMeta[c]?.enabled===false}; save(); catalogRefresh();
+}
+function catalogAddConcept(){
+  const n=prompt("Nombre del nuevo concepto"); if(!n)return;
+  const v=n.trim(); if(!v||db.concepts.includes(v))return alert("Ese nombre ya existe.");
+  db.concepts.push(v); db.conceptMeta[v]={enabled:true}; save(); catalogRefresh();
+}
+function catalogRenameConcept(i){
+  const old=db.concepts[i], n=prompt("Nuevo nombre de concepto",old); if(!n)return;
+  const v=n.trim(); if(!v||v===old)return; if(db.concepts.includes(v))return alert("Ese nombre ya existe.");
+  db.concepts[i]=v; db.conceptMeta[v]=db.conceptMeta[old]||{enabled:true}; delete db.conceptMeta[old];
+  (db.ops||[]).forEach(o=>{if(o.concept===old)o.concept=v}); save(); catalogRefresh();
+}
+function catalogToggleConcept(c){
+  db.conceptMeta[c]={...(db.conceptMeta[c]||{}),enabled:db.conceptMeta[c]?.enabled===false}; save(); catalogRefresh();
+}
+function catalogAddType(){
+  const n=prompt("Nombre del nuevo tipo de movimiento"); if(!n)return;
+  const v=n.trim(); if(!v||db.typeConfig[v])return alert("Ese tipo ya existe.");
+  db.typeConfig[v]={label:v,icon:"•",enabled:true}; save(); catalogRefresh();
+}
+function catalogRenameType(k){
+  const n=prompt("Nuevo nombre",db.typeConfig[k]?.label||k); if(!n)return;
+  const v=n.trim(); if(!v)return; db.typeConfig[k].label=v; save(); catalogRefresh();
+}
+function catalogToggleType(k){
+  db.typeConfig[k].enabled=db.typeConfig[k].enabled===false; save(); catalogRefresh();
+}
+const _oldOpenSettings=window.openSettings;
+window.openSettings=function(){_oldOpenSettings(); setTimeout(catalogRefresh,0);}
 </script>
 </body></html>
