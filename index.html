@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="theme-color" content="#111827"><link rel="manifest" href="manifest.json"><title>Gastos — Control Financiero · V17</title>
+<meta name="theme-color" content="#111827"><link rel="manifest" href="manifest.json"><title>GastosApp — Control Financiero · V18</title>
 <style>
 :root{--bg:#f5f7fb;--card:#fff;--ink:#111827;--muted:#6b7280;--line:#e5e7eb;--accent:#111827;--green:#15803d;--red:#b91c1c;--yellow:#a16207;--blue:#1d4ed8}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);font-family:Inter,system-ui,-apple-system,Segoe UI,sans-serif;color:var(--ink)}
@@ -13,6 +13,21 @@ button{border:0;border-radius:13px;padding:11px 14px;font-weight:700;cursor:poin
 .modal{display:none;position:fixed;inset:0;background:#0007;z-index:30;padding:16px;align-items:flex-end}.modal.show{display:flex}.sheet{background:#fff;border-radius:22px 22px 0 0;width:100%;max-width:1000px;margin:auto;max-height:92vh;overflow:auto;padding:20px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.full{grid-column:1/-1}label{font-size:12px;color:var(--muted);display:block;margin:4px 0}input,select{width:100%;padding:13px;border:1px solid var(--line);border-radius:12px;background:#fff;font-size:16px}.types{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin:10px 0}.type{background:#f3f4f6;border:1px solid var(--line)}.type.active{background:#111827;color:#fff}.actions{display:flex;gap:8px;margin-top:16px}.actions button{flex:1}
 table{width:100%;border-collapse:collapse;background:#fff;border-radius:13px;overflow:hidden}th,td{padding:9px;border-bottom:1px solid var(--line);font-size:12px;text-align:left;white-space:nowrap}.scroll{overflow:auto}.notice{padding:12px;border-radius:13px;background:#fff7ed;border:1px solid #fed7aa;font-size:13px}.ok{background:#ecfdf5;border-color:#bbf7d0}.pill{display:inline-block;padding:3px 8px;border-radius:999px;background:#eef2f7;font-size:11px}.empty{padding:18px;text-align:center;color:var(--muted);background:#fff;border:1px dashed var(--line);border-radius:13px}nav{display:flex;gap:8px;margin-bottom:12px;overflow:auto}nav button{white-space:nowrap}
 @media(min-width:650px){.cards{grid-template-columns:repeat(4,1fr)}.modal{align-items:center}.sheet{border-radius:22px}}
+
+/* V18 dashboard */
+:root{--bg:#f5f7fb;--card:#fff;--ink:#111827;--muted:#6b7280;--line:#e5e7eb;--accent:#2563eb;--green:#16a34a;--red:#dc2626;--yellow:#ca8a04;--purple:#8b5cf6}
+.dashboardHero{display:grid;grid-template-columns:1fr;gap:14px}
+.chartCard{background:linear-gradient(180deg,#111827,#0f172a);color:#fff;border-radius:18px;padding:16px;border:1px solid #1f2937;box-shadow:0 8px 30px #00000014}
+.chartHead{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:8px}.chartTitle{font-size:18px;font-weight:800}.chartSub{font-size:12px;color:#94a3b8;margin-top:3px}
+.chartWrap{height:320px;position:relative;margin-top:6px}.chartWrap canvas{width:100%;height:100%;display:block}
+.legend{display:flex;flex-wrap:wrap;gap:8px 14px;margin-top:10px}.legendItem{display:flex;align-items:center;gap:6px;font-size:11px;color:#cbd5e1}.legendDot{width:8px;height:8px;border-radius:50%}
+.rangeBtns{display:flex;gap:5px}.rangeBtn{padding:7px 9px;background:#1e293b;color:#cbd5e1;border:1px solid #334155;border-radius:9px;font-size:11px}.rangeBtn.active{background:#2563eb;color:#fff;border-color:#2563eb}
+.summaryGrid{display:grid;grid-template-columns:1fr;gap:12px}.summaryPanel{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:15px}.summaryPanel.invest{border-top:3px solid var(--purple)}.summaryPanel.normal{border-top:3px solid var(--accent)}
+.summaryPanelHead{display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:10px}.summaryPanel h3{margin:0;font-size:16px}.bigMoney{font-size:25px;font-weight:800;margin-top:4px}.delta{font-size:12px;font-weight:700}.accountRow{display:grid;grid-template-columns:1fr auto auto;gap:10px;align-items:center;padding:10px 0;border-top:1px solid var(--line)}.accountBadge{width:30px;height:30px;border-radius:9px;display:inline-flex;align-items:center;justify-content:center;background:#eef2ff;font-size:15px;margin-right:8px}.accountName{display:flex;align-items:center;font-weight:700}.accountKind{font-size:10px;color:var(--muted);margin-left:38px;margin-top:-4px}.accountAmount{font-weight:800}.accountPct{font-size:11px;color:var(--muted)}
+.totalCard{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:15px}.totalCard .value{font-size:30px}
+.statGrid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}.miniCard{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:13px}.miniCard .value{font-size:20px}
+.sectionTitle{display:flex;justify-content:space-between;align-items:center;gap:10px}
+@media(min-width:760px){.dashboardHero{grid-template-columns:1fr}.summaryGrid{grid-template-columns:1fr 1fr}.statGrid{grid-template-columns:repeat(4,1fr)}}
 </style></head>
 <body>
 <header><div class="top"><div><h1>CONTROL FINANCIERO</h1><div class="sub">Septiembre 2026 · cuentas · gastos · inversiones · patrimonio</div></div><button class="secondary" onclick="openSettings()">⚙<button class="secondary" onclick="document.getElementById('roadmapModal').classList.add('show')">🚀 Hoja de ruta</button></button></div></header>
@@ -144,6 +159,7 @@ if(db.version!==13){db.version=13;db.netWorthHistory=db.netWorthHistory||[];db.b
 function save(){
   localStorage.setItem(KEY,JSON.stringify(db));
   recordNetWorthSnapshot();
+  recordAccountSnapshot();
   if(localStorage.getItem("gastosAutoSync")!=="false"){
     clearTimeout(syncTimer);
     syncTimer=setTimeout(()=>syncToDrive(true),2500);
@@ -159,6 +175,36 @@ function recordNetWorthSnapshot(){
   if(db.netWorthHistory.length>400) db.netWorthHistory=db.netWorthHistory.slice(-400);
   localStorage.setItem(KEY,JSON.stringify(db));
 }
+function ensureAccountMeta(){
+  db.accountMeta=db.accountMeta||{};
+  let changed=false;
+  for(const a of db.accounts){
+    if(!db.accountMeta[a]){
+      db.accountMeta[a]={kind:/trade republic|broker|degiro|binance|coinbase|revolut investment/i.test(a)?'investment':'normal'};
+      changed=true;
+    }
+  }
+  if(changed) localStorage.setItem(KEY,JSON.stringify(db));
+}
+function accountKind(a){ensureAccountMeta();return db.accountMeta[a]?.kind==='investment'?'investment':'normal'}
+function normalAccounts(){return db.accounts.filter(a=>accountKind(a)==='normal')}
+function investmentAccounts(){return db.accounts.filter(a=>accountKind(a)==='investment')}
+function investmentValueByAccount(a){return db.investments.filter(x=>x.account===a).reduce((s,x)=>s+(Number(x.quantity)||0)*(Number(db.prices[x.id]??x.price??0)||0),0)}
+function totalInvestmentAccount(a){return balance(a)+investmentValueByAccount(a)}
+function recordAccountSnapshot(){
+  ensureAccountMeta();
+  const day=new Date().toISOString().slice(0,10);
+  db.accountHistory=db.accountHistory||[];
+  const snap={date:day,accounts:{}};
+  for(const a of db.accounts){
+    snap.accounts[a]=accountKind(a)==='investment'?totalInvestmentAccount(a):balance(a);
+  }
+  const last=db.accountHistory[db.accountHistory.length-1];
+  if(!last || last.date!==day) db.accountHistory.push(snap); else last.accounts=snap.accounts;
+  if(db.accountHistory.length>400) db.accountHistory=db.accountHistory.slice(-400);
+  localStorage.setItem(KEY,JSON.stringify(db));
+}
+
 function setAutoSync(v){localStorage.setItem("gastosAutoSync",v?"true":"false");if(v)syncToDrive(true)}
 function netWorth(){return db.accounts.reduce((s,a)=>s+bal(a),0)+portfolioValue()}
 function ensureMarketSymbols(){
@@ -182,18 +228,67 @@ function ensureMarketSymbols(){
   if(changed) save();
 }
 ensureMarketSymbols();
+ensureAccountMeta();
+recordAccountSnapshot();
 
 function euro(n){return new Intl.NumberFormat('es-ES',{style:'currency',currency:'EUR'}).format(Number(n)||0)}function monthName(ym){return new Date(ym+'-01T12:00:00').toLocaleDateString('es-ES',{month:'long',year:'numeric'}).replace(/^./,x=>x.toUpperCase())}
 function balance(acc){let b=Number(db.opening[acc]||0);for(const o of db.ops){if(o.origin===acc){if(o.type==='Ingreso')b+=o.amount;else if(o.type==='Gasto'||o.type==='Inversión'||o.type==='Traspaso')b-=o.amount}if(o.type==='Traspaso'&&o.dest===acc)b+=o.amount}return b}
 function totals(ym){let i=0,g=0,inv=0;for(const o of db.ops){if(o.date.slice(0,7)!==ym)continue;if(o.type==='Ingreso')i+=o.amount;if(o.type==='Gasto')g+=o.amount;if(o.type==='Inversión')inv+=o.amount}return{i,g,inv,r:i-g}}
 function portfolioValue(){return db.investments.reduce((s,x)=>s+(Number(x.quantity)||0)*(Number(db.prices[x.id]??x.price??0)||0),0)}function investedCost(){return db.investments.reduce((s,x)=>s+(x.avgPrice==null?0:(Number(x.quantity)||0)*Number(x.avgPrice)),0)}
 function showView(v){if(v==='movimientos')showMovimientos();else if(v==='cuentas')showCuentas();else if(v==='inversiones')showInvestments();else render()}
-function render(){const ym=new Date().toISOString().slice(0,7);const t=totals(ym),cash=db.accounts.reduce((s,a)=>s+balance(a),0),inv=portfolioValue();document.getElementById('app').innerHTML=`<div class="cards"><div class="card"><div class="label">Patrimonio total</div><div class="value">${euro(cash+inv)}</div></div><div class="card"><div class="label">Inversiones</div><div class="value yellow">${euro(inv)}</div></div><div class="card"><div class="label">Saldos / efectivo</div><div class="value">${euro(cash)}</div></div><div class="card"><div class="label">Ingresos septiembre</div><div class="value green">${euro(t.i)}</div></div><div class="card"><div class="label">Gastos septiembre</div><div class="value red">${euro(t.g)}</div></div><div class="card"><div class="label">Resultado</div><div class="value ${t.r>=0?'green':'red'}">${euro(t.r)}</div></div><div class="card"><div class="label">Inversiones del mes</div><div class="value yellow">${euro(t.inv)}</div></div><div class="card"><div class="label">Tasa de ahorro</div><div class="value">${t.i?(t.r/t.i*100).toFixed(1):'0.0'}%</div></div></div>
-<div class="section"><h2>Saldos por cuenta</h2><div class="accounts">${db.accounts.map(a=>`<div class="account"><div><b>${a}</b><div class="small">Saldo actual</div></div><b>${euro(balance(a))}</b></div>`).join('')}</div></div>
-<div class="section"><h2>Resumen de inversión</h2><div class="notice ok">Cartera cargada con 9 posiciones. Crypto incluye staking: ETH 0,036763 · 2,33% APY; SOL 0,234543 · 4,56% APY · recompensas 0,02 SOL.</div></div>
-<div class="section"><h2>Últimas operaciones</h2><div class="ops">${[...db.ops].reverse().slice(0,8).map(o=>`<div class="account"><div><b>${o.desc}</b><div class="small">${o.date} · ${o.cat}${o.type==='Traspaso'?` · ${o.origin} → ${o.dest}`:` · ${o.origin}`}</div></div><b class="${o.type==='Ingreso'?'green':o.type==='Gasto'?'red':'yellow'}">${o.type==='Ingreso'?'+':'-'}${euro(o.amount)}</b></div>`).join('')}</div></div>`}
+function chartSeries(){
+  ensureAccountMeta();
+  const history=(db.accountHistory||[]).slice(-120);
+  const names=db.accounts.slice();
+  return {history,names};
+}
+function drawWealthChart(){
+  const canvas=document.getElementById('wealthChart'); if(!canvas)return;
+  const ctx=canvas.getContext('2d'), rect=canvas.getBoundingClientRect(), dpr=window.devicePixelRatio||1;
+  canvas.width=Math.max(1,rect.width*dpr); canvas.height=Math.max(1,rect.height*dpr); ctx.setTransform(dpr,0,0,dpr,0,0);
+  const W=rect.width,H=rect.height,pad={l:48,r:18,t:18,b:34};
+  ctx.clearRect(0,0,W,H);
+  const {history,names}=chartSeries();
+  if(!history.length){ctx.fillStyle='#94a3b8';ctx.font='13px system-ui';ctx.fillText('Todavía no hay histórico suficiente.',20,30);return;}
+  const vals=[]; names.forEach(n=>history.forEach(h=>vals.push(Number(h.accounts?.[n]||0))));
+  let min=Math.min(0,...vals), max=Math.max(1,...vals); if(max===min)max=min+1;
+  const span=max-min, yMin=min-span*.08, yMax=max+span*.08;
+  const x=i=>pad.l+(i/(Math.max(1,history.length-1)))*(W-pad.l-pad.r);
+  const y=v=>H-pad.b-((v-yMin)/(yMax-yMin))*(H-pad.t-pad.b);
+  ctx.strokeStyle='#243244';ctx.lineWidth=1;ctx.font='10px system-ui';ctx.fillStyle='#94a3b8';
+  for(let j=0;j<5;j++){const yy=pad.t+j*(H-pad.t-pad.b)/4;ctx.beginPath();ctx.moveTo(pad.l,yy);ctx.lineTo(W-pad.r,yy);ctx.stroke();const v=yMax-(yMax-yMin)*j/4;ctx.fillText(euro(v).replace('€','€'),4,yy+3);}
+  const palette=['#3b82f6','#a855f7','#22c55e','#f59e0b','#ef4444','#06b6d4','#eab308','#ec4899','#14b8a6','#8b5cf6'];
+  names.forEach((n,idx)=>{
+    ctx.beginPath(); history.forEach((h,i)=>{const v=Number(h.accounts?.[n]||0);const xx=x(i),yy=y(v);i?ctx.lineTo(xx,yy):ctx.moveTo(xx,yy);});
+    ctx.strokeStyle=palette[idx%palette.length];ctx.lineWidth=2;ctx.stroke();
+  });
+  ctx.fillStyle='#94a3b8';ctx.font='10px system-ui';
+  const step=Math.max(1,Math.floor(history.length/6));
+  history.forEach((h,i)=>{if(i%step===0||i===history.length-1)ctx.fillText(h.date.slice(5),x(i)-12,H-10);});
+}
+function render(){
+  ensureAccountMeta();
+  const ym=new Date().toISOString().slice(0,7),t=totals(ym),normal=normalAccounts(),invest=investmentAccounts();
+  const normalTotal=normal.reduce((s,a)=>s+balance(a),0),investTotal=invest.reduce((s,a)=>s+totalInvestmentAccount(a),0),cash=normalTotal+invest.reduce((s,a)=>s+balance(a),0),inv=portfolioValue(),wealth=normalTotal+investTotal;
+  document.getElementById('app').innerHTML=`<div class="dashboardHero">
+<div class="totalCard"><div class="label">Patrimonio total</div><div class="value">${euro(wealth)}</div><div class="small">Cuentas normales + cuentas de inversión + cartera valorada a mercado</div></div>
+<div class="chartCard"><div class="chartHead"><div><div class="chartTitle">Evolución del patrimonio</div><div class="chartSub">Todas las cuentas en una sola gráfica · cada línea representa una cuenta</div></div><div class="rangeBtns"><button class="rangeBtn active">TODO</button></div></div><div class="chartWrap"><canvas id="wealthChart"></canvas></div><div class="legend">${db.accounts.map((a,i)=>`<span class="legendItem"><span class="legendDot" style="background:${['#3b82f6','#a855f7','#22c55e','#f59e0b','#ef4444','#06b6d4','#eab308','#ec4899','#14b8a6','#8b5cf6'][i%10]}"></span>${a}</span>`).join('')}</div></div>
+<div class="statGrid"><div class="miniCard"><div class="label">Ingresos ${monthName(ym)}</div><div class="value green">${euro(t.i)}</div></div><div class="miniCard"><div class="label">Gastos ${monthName(ym)}</div><div class="value red">${euro(t.g)}</div></div><div class="miniCard"><div class="label">Resultado</div><div class="value ${t.r>=0?'green':'red'}">${euro(t.r)}</div></div><div class="miniCard"><div class="label">Inversiones del mes</div><div class="value yellow">${euro(t.inv)}</div></div></div>
+<div class="summaryGrid">
+<div class="summaryPanel normal"><div class="summaryPanelHead"><div><h3>💳 Cuentas normales</h3><div class="bigMoney">${euro(normalTotal)}</div></div><div class="delta">Disponible</div></div>${normal.length?normal.map(a=>`<div class="accountRow"><div><div class="accountName"><span class="accountBadge">🏦</span>${a}</div><div class="accountKind">Cuenta normal</div></div><div class="accountAmount">${euro(balance(a))}</div><div class="accountPct">${normalTotal?((balance(a)/normalTotal)*100).toFixed(1):'0.0'}%</div></div>`).join(''):'<div class="empty">No hay cuentas normales.</div>'}</div>
+<div class="summaryPanel invest"><div class="summaryPanelHead"><div><h3>📈 Cuentas de inversión</h3><div class="bigMoney">${euro(investTotal)}</div></div><div class="delta" style="color:#8b5cf6">Valor de cartera</div></div>${invest.length?invest.map(a=>`<div class="accountRow"><div><div class="accountName"><span class="accountBadge">📊</span>${a}</div><div class="accountKind">Saldo + inversiones</div></div><div class="accountAmount">${euro(totalInvestmentAccount(a))}</div><div class="accountPct">${investTotal?((totalInvestmentAccount(a)/investTotal)*100).toFixed(1):'0.0'}%</div></div>`).join(''):'<div class="empty">No hay cuentas de inversión.</div>'}</div>
+</div>
+<div class="section"><h2>Últimas operaciones</h2><div class="ops">${[...db.ops].reverse().slice(0,8).map(o=>`<div class="account"><div><b>${o.desc}</b><div class="small">${o.date} · ${o.cat}${o.type==='Traspaso'?` · ${o.origin} → ${o.dest}`:` · ${o.origin}`}</div></div><b class="${o.type==='Ingreso'?'green':o.type==='Gasto'?'red':'yellow'}">${o.type==='Ingreso'?'+':'-'}${euro(o.amount)}</b></div>`).join('')}</div></div>
+</div>`;
+  drawWealthChart();
+}
 function showMovimientos(){document.getElementById('app').innerHTML=`<div class="section"><h2>Historial · septiembre 2026</h2><div class="scroll"><table><thead><tr><th>Fecha</th><th>Tipo</th><th>Descripción</th><th>Categoría</th><th>Cuenta</th><th>Importe</th><th></th></tr></thead><tbody>${[...db.ops].reverse().map(o=>`<tr><td>${o.date}</td><td>${o.type}</td><td>${o.desc}</td><td>${o.cat}</td><td>${o.type==='Traspaso'?o.origin+' → '+o.dest:o.origin}</td><td>${euro(o.amount)}</td><td><button class="secondary" onclick="editOp('${o.id}')">Editar</button> <button class="danger" onclick="deleteOp('${o.id}')">×</button></td></tr>`).join('')}</tbody></table></div></div>`}
-function showCuentas(){document.getElementById('app').innerHTML=`<div class="section"><h2>Cuentas</h2>${db.accounts.map(a=>`<div class="account"><span>${a}</span><b>${euro(balance(a))}</b></div>`).join('')}</div>`}
+function showCuentas(){
+  ensureAccountMeta();
+  const normal=normalAccounts(),invest=investmentAccounts();
+  const accountCard=a=>`<div class="account"><div><b>${a}</b><div class="small">${accountKind(a)==='investment'?'Cuenta de inversión · saldo + cartera':'Cuenta normal · efectivo disponible'}</div></div><b>${euro(accountKind(a)==='investment'?totalInvestmentAccount(a):balance(a))}</b></div>`;
+  document.getElementById('app').innerHTML=`<div class="section"><h2>💳 Cuentas normales</h2><div class="accounts">${normal.map(accountCard).join('')||'<div class="empty">No hay cuentas normales.</div>'}</div></div><div class="section"><h2>📈 Cuentas de inversión</h2><div class="accounts">${invest.map(accountCard).join('')||'<div class="empty">No hay cuentas de inversión.</div>'}</div></div><div class="notice ok" style="margin-top:14px">Las cuentas de inversión se separan del efectivo y su total incluye el saldo de la cuenta más el valor actual de las posiciones asociadas.</div>`;
+}
 function showInvestments(){const value=portfolioValue(),cost=investedCost(),pl=value-cost;document.getElementById('app').innerHTML=`<div class="section"><h2>Cartera de inversiones</h2><div class="cards"><div class="card"><div class="label">Valor actual</div><div class="value">${euro(value)}</div></div><div class="card"><div class="label">Capital con coste conocido</div><div class="value">${euro(cost)}</div></div><div class="card"><div class="label">Plusvalía conocida</div><div class="value ${pl>=0?'green':'red'}">${euro(pl)}</div></div><div class="card"><div class="label">Posiciones</div><div class="value">${db.investments.length}</div></div></div>
 <div class="section"><h2>Posiciones</h2><div class="scroll"><table><thead><tr><th>Cuenta</th><th>Activo</th><th>ISIN/Ticker</th><th>Unidades</th><th>Precio</th><th>Valor</th><th>P/L</th><th>Staking</th><th></th></tr></thead><tbody>${db.investments.map(x=>{const p=Number(db.prices[x.id]??x.price??0),v=(Number(x.quantity)||0)*p,known=x.avgPrice!=null,d=known?v-(Number(x.quantity)||0)*Number(x.avgPrice):null;return `<tr><td>${x.account}</td><td><b>${x.name}</b></td><td>${x.symbol||'Pendiente'}</td><td>${x.quantity}</td><td>${euro(p)}</td><td>${euro(v)}</td><td class="${d===null?'':d>=0?'green':'red'}">${d===null?'—':euro(d)}</td><td>${x.staking?'Sí · '+x.apy+'% · reward '+(x.rewards||0):'—'}</td><td><button class="secondary" onclick="editInvestment('${x.id}')">Editar</button></td></tr>`}).join('')}</tbody></table></div></div>
 <div class="actions"><button class="primary" onclick="addInvestment()">＋ Añadir activo</button><button class="secondary" onclick="refreshPrices()">↻ Actualizar precios</button></div><div class="notice" style="margin-top:12px">Los valores actuales son los de las capturas que me has pasado. Cripto se actualiza automáticamente con CoinGecko. Para ETF/acciones añade una API key de Twelve Data en Configuración; la app convierte cotizaciones USD a EUR cuando el proveedor devuelve USD.</div></div>`}
@@ -271,9 +366,9 @@ function manageRecurring(){
   alert('Recurrente añadido.');
 }
 
-function openSettings(){document.getElementById('settings').classList.add('show');catalogRefresh();loadSyncFields();loadMarketFields();document.getElementById('settingsAccounts').innerHTML=db.accounts.map((a,i)=>`<div style="display:grid;grid-template-columns:1fr 130px;gap:8px;margin:7px 0"><input value="${a}" onchange="renameAccount(${i},this.value)"><input type="number" step="0.01" value="${db.opening[a]||0}" onchange="setOpening('${a.replaceAll("'","\\'")}',this.value)"></div>`).join('');document.getElementById('investmentAccounts').innerHTML=db.accounts.filter(a=>/trade republic/i.test(a)).map(a=>`<div class="account" style="margin:7px 0"><span>${a}</span><b>${euro(balance(a))}</b></div>`).join('')}
-function closeSettings(){document.getElementById('settings').classList.remove('show');render()}function renameAccount(i,v){const old=db.accounts[i];if(!v||db.accounts.includes(v)&&v!==old)return;db.accounts[i]=v;db.opening[v]=db.opening[old]||0;delete db.opening[old];db.ops.forEach(o=>{if(o.origin===old)o.origin=v;if(o.dest===old)o.dest=v});db.investments.forEach(x=>{if(x.account===old)x.account=v});save()}
-function setOpening(a,v){db.opening[a]=Number(v)||0;save()}function addAccount(){const a=prompt('Nombre de la cuenta');if(a&&!db.accounts.includes(a)){db.accounts.push(a);db.opening[a]=0;save();openSettings()}}function addConcept(){const c=prompt('Nombre del concepto');if(c&&c.trim()&&!db.concepts.includes(c.trim())){db.concepts.push(c.trim());db.concepts.sort((a,b)=>a.localeCompare(b,'es'));save();openSettings()}}function addCategory(){const c=prompt('Nombre de la categoría');if(c&&!db.cats.includes(c)){db.cats.push(c);save();openSettings()}}
+function openSettings(){document.getElementById('settings').classList.add('show');catalogRefresh();loadSyncFields();loadMarketFields();document.getElementById('settingsAccounts').innerHTML=db.accounts.map((a,i)=>`<div style="display:grid;grid-template-columns:1fr 140px 150px;gap:8px;margin:7px 0;align-items:center"><input value="${a}" onchange="renameAccount(${i},this.value)"><input type="number" step="0.01" value="${db.opening[a]||0}" onchange="setOpening('${a.replaceAll("'","\\'")}',this.value)"><select onchange="setAccountKind('${a.replaceAll("'","\\'")}',this.value)"><option value="normal" ${accountKind(a)==='normal'?'selected':''}>Cuenta normal</option><option value="investment" ${accountKind(a)==='investment'?'selected':''}>Cuenta inversión</option></select></div>`).join('');document.getElementById('investmentAccounts').innerHTML=db.accounts.filter(a=>/trade republic/i.test(a)).map(a=>`<div class="account" style="margin:7px 0"><span>${a}</span><b>${euro(balance(a))}</b></div>`).join('')}
+function closeSettings(){document.getElementById('settings').classList.remove('show');render()}function renameAccount(i,v){const old=db.accounts[i];if(!v||db.accounts.includes(v)&&v!==old)return;db.accounts[i]=v;ensureAccountMeta();db.accountMeta[v]=db.accountMeta[old]||{kind:'normal'};delete db.accountMeta[old];db.opening[v]=db.opening[old]||0;delete db.opening[old];db.ops.forEach(o=>{if(o.origin===old)o.origin=v;if(o.dest===old)o.dest=v});db.investments.forEach(x=>{if(x.account===old)x.account=v});save()}
+function setAccountKind(a,v){ensureAccountMeta();db.accountMeta[a]={kind:v==='investment'?'investment':'normal'};save();openSettings()} function setOpening(a,v){db.opening[a]=Number(v)||0;save()}function addAccount(){const a=prompt('Nombre de la cuenta');if(a&&!db.accounts.includes(a)){db.accounts.push(a);db.opening[a]=0;db.accountMeta=db.accountMeta||{};db.accountMeta[a]={kind:'normal'};save();openSettings()}}function addConcept(){const c=prompt('Nombre del concepto');if(c&&c.trim()&&!db.concepts.includes(c.trim())){db.concepts.push(c.trim());db.concepts.sort((a,b)=>a.localeCompare(b,'es'));save();openSettings()}}function addCategory(){const c=prompt('Nombre de la categoría');if(c&&!db.cats.includes(c)){db.cats.push(c);save();openSettings()}}
 function restoreBaseData(){if(!confirm('Esto sustituirá los datos de esta versión por la base de septiembre 2026 que me has pasado. ¿Continuar?'))return;db=baseDB();window.db=db;save();closeSettings();render()}
 
 function exportBackup(){
