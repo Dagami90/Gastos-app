@@ -36,14 +36,14 @@ main{max-width:1180px;margin:auto;padding:28px 22px 60px}
 .toast{position:fixed;right:18px;bottom:18px;background:#12243b;border:1px solid #315176;color:#fff;padding:12px 15px;border-radius:12px;box-shadow:var(--shadow);display:none;z-index:100}.toast.show{display:block}
 @media(max-width:900px){.kpis{grid-template-columns:repeat(2,1fr)}.grid2{grid-template-columns:1fr}.nav{order:3;width:100%}.topin{height:auto;padding:12px 18px;flex-wrap:wrap}.actions{margin-left:auto}}
 @media(max-width:600px){main{padding:20px 14px}.hero{display:block}.hero .btn{margin-top:14px}.kpis{grid-template-columns:1fr 1fr}.formgrid{grid-template-columns:1fr}.title{font-size:26px}.topin{gap:8px}}
-</style>
+.syncbadge{font-size:11px;padding:7px 10px;border-radius:999px;background:rgba(255,255,255,.06);color:#aeb8cc;border:1px solid rgba(255,255,255,.08);white-space:nowrap}.syncbadge::before{content:"●";margin-right:6px;font-size:8px}</style>
 </head>
 <body>
 <div class="app">
 <header class="top"><div class="topin">
   <div class="brand"><div class="logo">G</div><div><b>GastosApp</b><small>finanzas personales</small></div></div>
   <nav class="nav" id="nav"></nav>
-  <div class="actions"><button class="iconbtn" onclick="openSettings()" title="Configuración">⚙</button></div>
+  <div class="actions"><span id="syncBadge" class="syncbadge">Drive</span><button class="iconbtn" onclick="openSettings()" title="Configuración">⚙</button></div>
 </div></header>
 <main id="main"></main>
 </div>
@@ -67,46 +67,61 @@ const defaults={
 };
 let hadLocalDB=!!localStorage.getItem(KEY);
 let db=load();
+let driveStatus='';
 
 function load(){try{const x=JSON.parse(localStorage.getItem(KEY)||'null');return x&&typeof x==='object'?Object.assign(structuredClone(defaults),x):structuredClone(defaults)}catch(e){return structuredClone(defaults)}}
 function save(){localStorage.setItem(KEY,JSON.stringify(db));queueSync();render()}
+function hasRealData(x=db){return Array.isArray(x.accounts)&&x.accounts.length>0 || Array.isArray(x.ops)&&x.ops.length>0 || Array.isArray(x.investments)&&x.investments.length>0}
 function queueSync(){if(db.settings?.autoSync===false)return;clearTimeout(syncTimer);syncTimer=setTimeout(syncDrive,450)}
 async function syncDrive(){
  if(db.settings?.autoSync===false)return;
  const url=db.settings.driveUrl||DRIVE_URL, token=db.settings.driveToken||DRIVE_TOKEN;
  if(!url||!token)return;
+ // Never upload an empty database: this protects the Drive copy when opening the app on a new phone.
+ if(!hasRealData(db)){driveStatus='empty-not-uploaded';return}
+ driveStatus='syncing'; updateSyncBadge();
  try{
-   await fetch(url,{method:'POST',mode:'no-cors',
-     headers:{'Content-Type':'text/plain;charset=utf-8'},
-     body:JSON.stringify({token:token,data:db,savedAt:new Date().toISOString()})});
- }catch(e){}
+   await fetch(url,{method:'POST',mode:'no-cors',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({token:token,data:db,savedAt:new Date().toISOString()})});
+   driveStatus='synced'; updateSyncBadge();
+ }catch(e){driveStatus='error';updateSyncBadge()}
+}
+function updateSyncBadge(){
+ const b=document.getElementById('syncBadge'); if(!b)return;
+ const map={syncing:'Sincronizando…',synced:'Drive sincronizado',restoring:'Recuperando Drive…',restored:'Drive recuperado',error:'Error de Drive', 'empty-not-uploaded':'Sin datos locales'};
+ b.textContent=map[driveStatus]||'Drive';
 }
 
-async function restoreDriveSilently(){
+async function restoreDriveSilently(force=false){
  const cfg=db.settings||{};
  const url=cfg.driveUrl||DRIVE_URL, token=cfg.driveToken||DRIVE_TOKEN;
  if(!url||!token)return false;
+ driveStatus='restoring';updateSyncBadge();
  return await new Promise(resolve=>{
-   const cb='gastosAutoRestore_'+Date.now();
+   const cb='gastosRestore_'+Date.now()+'_'+Math.random().toString(36).slice(2);
    let done=false;
-   const finish=v=>{if(done)return;done=true;try{delete window[cb]}catch(e){};resolve(v)};
+   const finish=v=>{if(done)return;done=true;try{delete window[cb]}catch(e){};try{sc.remove()}catch(e){};resolve(v)};
    window[cb]=res=>{
      try{
        if(!res||res.ok!==true||!res.data)return finish(false);
        const x=res.data;
        if(!Array.isArray(x.accounts)||!Array.isArray(x.ops))return finish(false);
+       // Do not replace local data unless explicitly requested, or there is no local data.
+       if(hasRealData(db) && !force)return finish(false);
        db=Object.assign(structuredClone(defaults),x);
        db.investments=Array.isArray(x.investments)?x.investments:[];
+       db.categories=Array.isArray(x.categories)?x.categories:structuredClone(defaults.categories);
+       db.concepts=Array.isArray(x.concepts)?x.concepts:[];
        db.settings=Object.assign({},structuredClone(defaults.settings),x.settings||{},{driveUrl:url,driveToken:token,autoSync:true});
        localStorage.setItem(KEY,JSON.stringify(db));
-       finish(true);render();toast('Datos recuperados de Drive');
+       driveStatus='restored';updateSyncBadge();finish(true);render();toast('Datos recuperados de Drive');
      }catch(e){finish(false)}
    };
    const sc=document.createElement('script');
-   sc.src=url+'?action=get&token='+encodeURIComponent(token)+'&callback='+cb;
-   sc.onerror=()=>finish(false);
+   sc.async=true;
+   sc.src=url+'?action=get&token='+encodeURIComponent(token)+'&callback='+cb+'&_='+Date.now();
+   sc.onerror=()=>{driveStatus='error';updateSyncBadge();finish(false)};
    document.body.appendChild(sc);
-   setTimeout(()=>finish(false),10000);
+   setTimeout(()=>{if(!done){driveStatus='error';updateSyncBadge();finish(false)}},15000);
  });
 }
 
@@ -253,7 +268,7 @@ function saveSettings(){
  toast('Sincronización automática activada');
 }
 function restoreDrive(){
- restoreDriveSilently().then(ok=>{if(!ok)alert('No se pudo recuperar la copia de Drive.')});
+ restoreDriveSilently(true).then(ok=>{if(!ok)alert('No se pudo recuperar la copia de Drive. Comprueba la conexión y que la copia de Drive exista.')});
 }
 
 function exportData(){const b=new Blob([JSON.stringify(db,null,2)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='GastosApp_copia.json';a.click()}
@@ -261,9 +276,11 @@ function importData(){const i=document.createElement('input');i.type='file';i.ac
 
 (async function boot(){
  render();
- if(!hadLocalDB){
-   const ok=await restoreDriveSilently();
-   if(!ok){localStorage.setItem(KEY,JSON.stringify(db));}
+ updateSyncBadge();
+ // A new device may have no local data. Try Drive, but NEVER overwrite Drive with an empty local database if recovery fails.
+ if(!hadLocalDB && !hasRealData(db)){
+   const ok=await restoreDriveSilently(false);
+   if(!ok){driveStatus='error';updateSyncBadge();}
  }
 })();
 </script>
