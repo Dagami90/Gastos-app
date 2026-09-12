@@ -49,7 +49,7 @@ nav{gap:6px;margin-bottom:18px}nav button{background:transparent;color:#cbd5e1;b
 <button class="fab" onclick="openOp()">＋ Añadir operación</button>
 
 <div class="modal" id="modal"><div class="sheet"><h2 id="modalTitle">Nueva operación</h2><div class="types"><button class="type active" data-t="Gasto" onclick="setType('Gasto')">💸 Gasto</button><button class="type" data-t="Ingreso" onclick="setType('Ingreso')">💰 Ingreso</button><button class="type" data-t="Traspaso" onclick="setType('Traspaso')">🔄 Traspaso</button><button class="type" data-t="Inversión" onclick="setType('Inversión')">📈 Inversión</button></div>
-<div class="grid"><div><label>Fecha</label><input id="fDate" type="date"></div><div><label>Importe (€)</label><input id="fAmount" type="number" step="0.01" min="0" inputmode="decimal"></div><div><label>Cuenta origen</label><select id="fOrigin"></select></div><div id="destWrap"><label>Cuenta destino</label><select id="fDest"></select></div><div id="catWrap" class="full"><label>Categoría</label><select id="fCat"></select></div><div class="full"><label>Concepto</label><select id="fConcept"></select></div><div id="assetWrap" class="full" style="display:none"><label>Activo (acción / ETF / cripto)</label><input id="fAsset" placeholder="Ej.: S&P 500, BTC, Ethereum, Apple..."></div><div class="full"><label>Descripción adicional</label><input id="fDesc" placeholder="Detalle opcional"></div></div>
+<div class="grid"><div><label>Fecha</label><input id="fDate" type="date"></div><div><label>Importe (€)</label><input id="fAmount" type="number" step="0.01" min="0" inputmode="decimal"></div><div><label>Cuenta origen</label><select id="fOrigin"></select></div><div id="destWrap"><label>Cuenta destino</label><select id="fDest"></select></div><div id="catWrap" class="full"><label>Categoría</label><select id="fCat"></select></div><div class="full"><label>Concepto</label><select id="fConcept"></select></div><div id="assetWrap" class="full" style="display:none"><label>Activo (acción / ETF / cripto)</label><input id="fAsset" placeholder="Ej.: S&P 500, BTC, Ethereum, Apple..."></div><div id="quantityWrap" style="display:none"><label>Cantidad</label><input id="fQuantity" type="number" min="0" step="0.000001" inputmode="decimal" placeholder="Ej.: 2,5"></div><div id="unitPriceWrap" style="display:none"><label>Precio por unidad (€)</label><input id="fUnitPrice" type="number" min="0" step="0.01" inputmode="decimal" placeholder="Opcional"></div><div class="full"><label>Descripción adicional</label><input id="fDesc" placeholder="Detalle opcional"></div></div>
 <div class="actions"><button class="secondary" onclick="closeOp()">Cancelar</button><button class="primary" onclick="saveOp()">Guardar operación</button></div></div></div>
 
 <div class="modal" id="settings"><div class="sheet"><h2>Configuración</h2><div class="notice ok">Base actualizada con los datos que me has pasado: saldos iniciales, movimientos y cuentas. Las compras de inversión se registran como operaciones dentro de las cuentas de inversión.</div>
@@ -228,13 +228,28 @@ function ensureAssetMeta(){
   let changed=false;
   (db.ops||[]).filter(o=>o.type==='Inversión').forEach(o=>{
     const n=(o.asset||o.desc||'Inversión').trim();
-    if(n && !db.assetMeta[n]){db.assetMeta[n]={enabled:true,marketValue:null};changed=true}
+    if(n&&!db.assetMeta[n]){db.assetMeta[n]={enabled:true,marketValue:null};changed=true}
+    if(o.quantity===undefined||o.quantity===null||o.quantity===''){o.quantity=1;o.unitPrice=Number(o.amount)||0;changed=true}
   });
   if(changed)localStorage.setItem(KEY,JSON.stringify(db));
 }
 function investmentAssets(){
   ensureAssetMeta();
   return Object.keys(db.assetMeta||{}).filter(n=>db.assetMeta[n]?.enabled!==false);
+}
+function investmentQuantityByAsset(){
+  const out={};
+  investmentOps().forEach(o=>{
+    const n=(o.asset||o.desc||'Inversión').trim()||'Inversión';
+    const q=Number(o.quantity);
+    out[n]=(out[n]||0)+(Number.isFinite(q)&&q>0?q:1);
+  });
+  return out;
+}
+function investmentAveragePriceByAsset(){
+  const qty=investmentQuantityByAsset(),cost=investmentCostByAsset(),out={};
+  Object.keys(cost).forEach(n=>out[n]=qty[n]?cost[n]/qty[n]:0);
+  return out;
 }
 function investmentCostByAsset(){
   const out={};
@@ -285,13 +300,15 @@ function addInvestmentAsset(){
 }
 function removeInvestmentAsset(n){
   ensureAssetMeta();
-  const hasOps=investmentOps().some(o=>(o.asset||o.desc||'').trim()===n);
-  if(hasOps)return alert('No se puede eliminar un activo que tiene compras registradas. Puedes desactivarlo.');
-  if(confirm('¿Eliminar el activo "'+n+'"?')){
-    delete db.assetMeta[n];
-    (db.assetMarketHistory||[]).forEach(h=>{if(h.assets)delete h.assets[n]});
-    save(); showView('inversiones');
-  }
+  const ops=investmentOps().filter(o=>(o.asset||o.desc||'').trim()===n);
+  const msg=ops.length
+    ? 'Este activo tiene '+ops.length+' compra(s) registradas. Si lo eliminas, también se eliminarán esas compras y el importe dejará de formar parte de la cuenta. ¿Continuar?'
+    : '¿Eliminar el activo "'+n+'"?';
+  if(!confirm(msg))return;
+  if(ops.length)db.ops=(db.ops||[]).filter(o=>!ops.includes(o));
+  delete db.assetMeta[n];
+  (db.assetMarketHistory||[]).forEach(h=>{if(h.assets)delete h.assets[n]});
+  save();showView('inversiones');
 }
 function toggleInvestmentAsset(n){
   ensureAssetMeta();
@@ -447,7 +464,7 @@ function drawInvestmentChart(){
 }
 function showInvestments(){
   ensureAccountMeta(); ensureAssetMeta();
-  const costs=investmentCostByAsset(), assets=investmentAssets();
+  const costs=investmentCostByAsset(), qtys=investmentQuantityByAsset(), avgs=investmentAveragePriceByAsset(), assets=investmentAssets();
   const cash=investmentAccounts().reduce((sum,a)=>sum+balance(a),0);
   const marketTotal=assets.reduce((sum,n)=>sum+(currentMarketValue(n)||0),0);
   const known=assets.filter(n=>currentMarketValue(n)!==null);
@@ -495,7 +512,7 @@ function showInvestments(){
     .trName{font-weight:750;font-size:13px}.trMeta{font-size:10px;color:#8094ad;margin-top:3px}
     .trAmount{text-align:right;font-weight:800;font-size:14px}
     .trPositions{background:#0d1a2b;border:1px solid #203752;border-radius:15px;overflow:hidden}
-    .trPosition{display:grid;grid-template-columns:minmax(190px,1.5fr) 110px 125px 120px 145px;gap:10px;align-items:center;padding:14px 17px;border-bottom:1px solid #1b2f48}
+    .trPosition{display:grid;grid-template-columns:minmax(190px,1.5fr) 110px 115px 90px 145px 75px;gap:10px;align-items:center;padding:14px 17px;border-bottom:1px solid #1b2f48}
     .trPosition:last-child{border-bottom:0}
     .trPosition:hover{background:#102039}
     .trPosMain{display:flex;align-items:center;gap:11px}
@@ -557,11 +574,12 @@ function showInvestments(){
       ${assets.map((n,i)=>{
         const mv=currentMarketValue(n),cost=Number(costs[n]||0),gain=mv===null?null:mv-cost,pct=mv===null||!cost?null:gain/cost*100;
         return `<div class="trPosition">
-          <div class="trPosMain"><div class="trAssetIcon" style="outline:2px solid ${colorFor(i)}">${icon(n)}</div><div><div class="trPosName">${n}</div><div class="trPosSmall">Capital invertido ${euro(cost)}</div></div></div>
+          <div class="trPosMain"><div class="trAssetIcon" style="outline:2px solid ${colorFor(i)}">${icon(n)}</div><div><div class="trPosName">${n}</div><div class="trPosSmall">${qtys[n].toLocaleString('es-ES',{maximumFractionDigits:6})} unidades · precio medio ${euro(avgs[n])}</div></div></div>
           <div class="trCell"><span class="muted">VALOR MERCADO</span><span class="trMarket">${mv===null?'—':euro(mv)}</span></div>
           <div class="trCell"><span class="muted">RENDIMIENTO</span><span class="trPnl ${gain===null?'':gain>=0?'pos':'neg'}">${gain===null?'—':(gain>=0?'+':'')+euro(gain)}</span></div>
           <div class="trCell"><span class="muted">%</span><span class="trPnl ${pct===null?'':pct>=0?'pos':'neg'}">${pct===null?'—':(pct>=0?'+':'')+pct.toFixed(2)+'%'}</span></div>
           <div class="trCell"><span class="muted">ACTUALIZAR VALOR</span><input class="trInput" type="number" min="0" step="0.01" value="${mv===null?'':mv}" placeholder="€" onchange="saveMarketValue('${esc(n)}',this.value)"></div>
+          <div class="trCell"><button class="trBtn" style="padding:7px 9px;font-size:10px" onclick="removeInvestmentAsset('${esc(n)}')">Eliminar</button></div>
         </div>`;
       }).join('')||'<div class="trEmpty">Todavía no tienes activos. Pulsa «Añadir activo» para crear tu primera posición.</div>'}
       </div>
@@ -642,11 +660,68 @@ function drawPersonalChart(){
   const canvas=document.getElementById('personalChart');if(!canvas)return;
   drawSeriesCanvas(canvas,accountDailySeries(),normalAccounts(),false);
 }
-function openOp(editId){window.editingOp=editId||null;document.getElementById('modalTitle').textContent=editId?'Editar operación':'Nueva operación';type='Gasto';document.querySelectorAll('.type').forEach(b=>b.classList.toggle('active',b.dataset.t===type));const o=editId?db.ops.find(x=>x.id===editId):null;document.getElementById('fDate').value=o?.date||new Date().toISOString().slice(0,10);document.getElementById('fAmount').value=o?.amount||'';fillSelect('fOrigin',db.accounts,o?.origin||db.accounts[0]);fillSelect('fDest',db.accounts,o?.dest||db.accounts[1]);fillSelect('fCat',db.cats,o?.cat||db.cats[0]);fillSelect('fConcept',['',...db.concepts],o?.desc||'');document.getElementById('fDesc').value='';if(document.getElementById('fAsset'))document.getElementById('fAsset').value=o?.asset||'';setType(o?.type||'Gasto');document.getElementById('modal').classList.add('show')}
+function openOp(editId){
+  window.editingOp=editId||null;
+  document.getElementById('modalTitle').textContent=editId?'Editar operación':'Nueva operación';
+  type='Gasto';
+  document.querySelectorAll('.type').forEach(b=>b.classList.toggle('active',b.dataset.t===type));
+  const o=editId?db.ops.find(x=>x.id===editId):null;
+  document.getElementById('fDate').value=o?.date||new Date().toISOString().slice(0,10);
+  document.getElementById('fAmount').value=o?.amount||'';
+  fillSelect('fOrigin',db.accounts,o?.origin||db.accounts[0]);
+  fillSelect('fDest',db.accounts,o?.dest||db.accounts[1]);
+  fillSelect('fCat',db.cats,o?.cat||db.cats[0]);
+  fillSelect('fConcept',['',...db.concepts],o?.desc||'');
+  document.getElementById('fDesc').value='';
+  document.getElementById('fAsset').value=o?.asset||'';
+  document.getElementById('fQuantity').value=o?.quantity??'';
+  document.getElementById('fUnitPrice').value=o?.unitPrice??'';
+  setType(o?.type||'Gasto');
+  document.getElementById('modal').classList.add('show');
+}
 function fillSelect(id,arr,val){document.getElementById(id).innerHTML=arr.map(x=>`<option value="${String(x).replaceAll('"','&quot;')}">${x||'— Sin concepto —'}</option>`).join('');if(arr.includes(val))document.getElementById(id).value=val}
-function setType(t){type=t;document.querySelectorAll('.type').forEach(b=>b.classList.toggle('active',b.dataset.t===t));document.getElementById('destWrap').style.display=t==='Traspaso'?'block':'none';document.getElementById('catWrap').style.display=t==='Traspaso'?'none':'block';if(document.getElementById('assetWrap'))document.getElementById('assetWrap').style.display=t==='Inversión'?'block':'none';const o=document.getElementById('fOrigin');if(t==='Inversión')fillSelect('fOrigin',investmentAccounts(),o.value||investmentAccounts()[0]);else fillSelect('fOrigin',db.accounts,o.value||db.accounts[0])}
+function setType(t){
+  type=t;
+  document.querySelectorAll('.type').forEach(b=>b.classList.toggle('active',b.dataset.t===t));
+  document.getElementById('destWrap').style.display=t==='Traspaso'?'block':'none';
+  document.getElementById('catWrap').style.display=t==='Traspaso'?'none':'block';
+  const inv=t==='Inversión';
+  document.getElementById('assetWrap').style.display=inv?'block':'none';
+  document.getElementById('quantityWrap').style.display=inv?'block':'none';
+  document.getElementById('unitPriceWrap').style.display=inv?'block':'none';
+  const o=document.getElementById('fOrigin');
+  if(inv)fillSelect('fOrigin',investmentAccounts(),o.value||investmentAccounts()[0]);
+  else fillSelect('fOrigin',db.accounts,o.value||db.accounts[0]);
+}
 function closeOp(){document.getElementById('modal').classList.remove('show');window.editingOp=null}
-function saveOp(){const amount=Number(document.getElementById('fAmount').value);if(!amount||amount<0)return alert('Introduce un importe válido.');const origin=document.getElementById('fOrigin').value;if(type==='Inversión'&&accountKind(origin)!=='investment')return alert('Una compra de inversión debe salir de una cuenta marcada como Cuenta de inversión.');const asset=(document.getElementById('fAsset')?.value||'').trim();if(type==='Inversión'&&!asset)return alert('Indica el activo: acción, ETF o cripto.');const o={id:window.editingOp||crypto.randomUUID(),date:document.getElementById('fDate').value,type,cat:document.getElementById('fCat').value,desc:document.getElementById('fConcept').value||asset||document.getElementById('fDesc').value||type,asset: type==='Inversión'?asset:'',amount,origin,dest:type==='Traspaso'?document.getElementById('fDest').value:''};if(window.editingOp){const i=db.ops.findIndex(x=>x.id===window.editingOp);db.ops[i]=o}else db.ops.push(o);save();closeOp();showView(type==='Inversión'?'inversiones':'movimientos')}
+function saveOp(){
+  let amount=Number(document.getElementById('fAmount').value);
+  if(!amount||amount<0)return alert('Introduce un importe válido.');
+  const origin=document.getElementById('fOrigin').value;
+  const asset=(document.getElementById('fAsset').value||'').trim();
+  let quantity=null,unitPrice=null;
+  if(type==='Inversión'){
+    if(accountKind(origin)!=='investment')return alert('Una compra de inversión debe salir de una cuenta marcada como Cuenta de inversión.');
+    if(!asset)return alert('Indica el activo: acción, ETF o cripto.');
+    quantity=Number(document.getElementById('fQuantity').value);
+    if(!Number.isFinite(quantity)||quantity<=0)return alert('Indica una cantidad de activo válida.');
+    const rawPrice=document.getElementById('fUnitPrice').value;
+    unitPrice=rawPrice===''?amount/quantity:Number(rawPrice);
+    if(!Number.isFinite(unitPrice)||unitPrice<=0)return alert('Indica un precio por unidad válido.');
+    const calculated=quantity*unitPrice;
+    if(Math.abs(calculated-amount)>0.01){
+      if(!confirm('Cantidad × precio unitario = '+euro(calculated)+' y el importe = '+euro(amount)+'. ¿Usar '+euro(calculated)+' como importe de compra?'))return;
+      amount=calculated;
+      document.getElementById('fAmount').value=amount.toFixed(2);
+    }
+    ensureAssetMeta();
+    db.assetMeta[asset]=db.assetMeta[asset]||{enabled:true,marketValue:null};
+    db.assetMeta[asset].enabled=true;
+  }
+  const o={id:window.editingOp||crypto.randomUUID(),date:document.getElementById('fDate').value,type,cat:document.getElementById('fCat').value,desc:document.getElementById('fConcept').value||asset||document.getElementById('fDesc').value||type,asset:type==='Inversión'?asset:'',quantity,unitPrice,amount,origin,dest:type==='Traspaso'?document.getElementById('fDest').value:''};
+  if(window.editingOp){const i=db.ops.findIndex(x=>x.id===window.editingOp);db.ops[i]=o}else db.ops.push(o);
+  save();closeOp();showView(type==='Inversión'?'inversiones':'movimientos')
+}
 function editOp(id){openOp(id)}function deleteOp(id){if(confirm('¿Eliminar esta operación?')){db.ops=db.ops.filter(x=>x.id!==id);save();showMovimientos()}}
 function manageBudgets(){
   const cat=prompt('Categoría para presupuesto',Object.keys(db.budgets||{})[0]||db.cats[0]);if(!cat)return;
@@ -725,7 +800,7 @@ function importBackup(ev){
       const p=JSON.parse(r.result), d=p.data||p;
       if(!d.accounts||!d.ops) throw new Error("Formato no válido");
       if(!confirm("Esto sustituirá los datos actuales por la copia. ¿Continuar?")) return;
-      db=d; window.db=db; db.version=30; db.investments=db.investments||[]; db.prices=db.prices||{}; db.assetMeta=db.assetMeta||{}; db.assetMarketHistory=db.assetMarketHistory||[]; save(); render(); closeSettings();
+      db=d; window.db=db; db.version=31; db.investments=db.investments||[]; db.prices=db.prices||{}; db.assetMeta=db.assetMeta||{}; db.assetMarketHistory=db.assetMarketHistory||[]; save(); render(); closeSettings();
       alert("Copia restaurada correctamente.");
     }catch(e){alert("No se pudo importar la copia: "+e.message)}
   };
