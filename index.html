@@ -36,12 +36,7 @@ main{max-width:1180px;margin:auto;padding:28px 22px 60px}
 .toast{position:fixed;right:18px;bottom:18px;background:#12243b;border:1px solid #315176;color:#fff;padding:12px 15px;border-radius:12px;box-shadow:var(--shadow);display:none;z-index:100}.toast.show{display:block}
 @media(max-width:900px){.kpis{grid-template-columns:repeat(2,1fr)}.grid2{grid-template-columns:1fr}.nav{order:3;width:100%}.topin{height:auto;padding:12px 18px;flex-wrap:wrap}.actions{margin-left:auto}}
 @media(max-width:600px){main{padding:20px 14px}.hero{display:block}.hero .btn{margin-top:14px}.kpis{grid-template-columns:1fr 1fr}.formgrid{grid-template-columns:1fr}.title{font-size:26px}.topin{gap:8px}}
-
-.dashboardChart{height:320px;position:relative}.dashboardChart canvas{width:100%;height:100%}
-.chartLegend{display:flex;gap:16px;flex-wrap:wrap;margin-top:8px}.chartLegend span{font-size:10px;color:var(--muted)}
-.chartLegend i{display:inline-block;width:18px;height:3px;border-radius:3px;vertical-align:middle;margin-right:5px}
-.syncdot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--green);margin-right:5px}
-
+</style>
 </head>
 <body>
 <div class="app">
@@ -70,29 +65,49 @@ const defaults={
  investments:[],
  settings:{autoSync:true,driveUrl:DRIVE_URL,driveToken:DRIVE_TOKEN}
 };
+let hadLocalDB=!!localStorage.getItem(KEY);
 let db=load();
 
-function load(){try{
- const x=JSON.parse(localStorage.getItem(KEY)||'null');
- const base=structuredClone(defaults);
- if(x&&typeof x==='object'){
-   Object.assign(base,x);
-   base.settings=Object.assign({},defaults.settings,x.settings||{});
- }
- return base;
-}catch(e){return structuredClone(defaults)}}
-function save(){
- db.settings=db.settings||structuredClone(defaults.settings);
- localStorage.setItem(KEY,JSON.stringify(db));queueSync();render()
-}
+function load(){try{const x=JSON.parse(localStorage.getItem(KEY)||'null');return x&&typeof x==='object'?Object.assign(structuredClone(defaults),x):structuredClone(defaults)}catch(e){return structuredClone(defaults)}}
+function save(){localStorage.setItem(KEY,JSON.stringify(db));queueSync();render()}
 function queueSync(){if(db.settings?.autoSync===false)return;clearTimeout(syncTimer);syncTimer=setTimeout(syncDrive,450)}
 async function syncDrive(){
  if(db.settings?.autoSync===false)return;
- const url=db.settings.driveUrl||DRIVE_URL,token=db.settings.driveToken||DRIVE_TOKEN;
+ const url=db.settings.driveUrl||DRIVE_URL, token=db.settings.driveToken||DRIVE_TOKEN;
+ if(!url||!token)return;
  try{
-   await fetch(url,{method:'POST',mode:'no-cors',headers:{'Content-Type':'text/plain;charset=utf-8'},
-     body:JSON.stringify({token,data:db,savedAt:new Date().toISOString()})});
+   await fetch(url,{method:'POST',mode:'no-cors',
+     headers:{'Content-Type':'text/plain;charset=utf-8'},
+     body:JSON.stringify({token:token,data:db,savedAt:new Date().toISOString()})});
  }catch(e){}
+}
+
+async function restoreDriveSilently(){
+ const cfg=db.settings||{};
+ const url=cfg.driveUrl||DRIVE_URL, token=cfg.driveToken||DRIVE_TOKEN;
+ if(!url||!token)return false;
+ return await new Promise(resolve=>{
+   const cb='gastosAutoRestore_'+Date.now();
+   let done=false;
+   const finish=v=>{if(done)return;done=true;try{delete window[cb]}catch(e){};resolve(v)};
+   window[cb]=res=>{
+     try{
+       if(!res||res.ok!==true||!res.data)return finish(false);
+       const x=res.data;
+       if(!Array.isArray(x.accounts)||!Array.isArray(x.ops))return finish(false);
+       db=Object.assign(structuredClone(defaults),x);
+       db.investments=Array.isArray(x.investments)?x.investments:[];
+       db.settings=Object.assign({},structuredClone(defaults.settings),x.settings||{},{driveUrl:url,driveToken:token,autoSync:true});
+       localStorage.setItem(KEY,JSON.stringify(db));
+       finish(true);render();toast('Datos recuperados de Drive');
+     }catch(e){finish(false)}
+   };
+   const sc=document.createElement('script');
+   sc.src=url+'?action=get&token='+encodeURIComponent(token)+'&callback='+cb;
+   sc.onerror=()=>finish(false);
+   document.body.appendChild(sc);
+   setTimeout(()=>finish(false),10000);
+ });
 }
 
 function toast(t){const x=document.getElementById('toast');x.textContent=t;x.classList.add('show');setTimeout(()=>x.classList.remove('show'),2200)}
@@ -101,7 +116,7 @@ function esc(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&l
 function id(){return Date.now().toString(36)+Math.random().toString(36).slice(2)}
 function kind(a){return a.kind==='investment'?'investment':'personal'}
 function accountsOf(k){return db.accounts.filter(a=>kind(a)===k&&!a.disabled)}
-function balance(name){return db.accounts.find(a=>a.name===name)?.initial||0 + db.ops.filter(o=>o.type!=='Inversión'&&o.origin===name).reduce((s,o)=>s-(Number(o.amount)||0),0)}
+function balance(name){return calcBalance(name)}
 function calcBalance(name){
  let v=Number(db.accounts.find(a=>a.name===name)?.initial||0);
  db.ops.forEach(o=>{
@@ -142,58 +157,22 @@ function dashboard(el){
   <div class="kpi"><div class="lab">Gastos del mes</div><div class="num red">${euro(exp)}</div></div>
   <div class="kpi"><div class="lab">Invertido este mes</div><div class="num gold">${euro(inv)}</div></div>
  </div>
- <div class="card">
-  <div class="cardhead"><div><h3>Evolución diaria del mes</h3><div class="muted">El saldo cambia día a día según ingresos, gastos, traspasos e inversiones.</div></div><span class="pill">Día a día</span></div>
-  <div class="dashboardChart"><canvas id="monthChart"></canvas></div>
-  <div class="chartLegend"><span><i style="background:#3b82f6"></i>Saldo total</span><span><i style="background:#31d39b"></i>Ingresos acumulados</span><span><i style="background:#ff647c"></i>Gastos acumulados</span></div>
-</div>
-<div class="grid2 section">
+ <div class="grid2">
+  <div class="card"><div class="cardhead"><h3>Patrimonio por cuenta</h3><span class="muted">${acc.length} cuentas</span></div><div class="chart"><canvas id="dashChart"></canvas></div><div class="legend">${acc.map((a,i)=>`<span><i class="dot" style="background:${palette(i)}"></i>${esc(a.name)}</span>`).join('')}</div></div>
   <div class="card"><div class="cardhead"><h3>Cuentas</h3><span class="muted">todas</span></div><div class="list">${acc.map((a,i)=>`<div class="row"><div class="left"><div class="avatar">${kind(a)==='investment'?'↗':'€'}</div><div><div class="name">${esc(a.name)}</div><div class="small">${kind(a)==='investment'?'Cuenta de inversión':'Cuenta personal'}</div></div></div><div class="amount">${euro(calcBalance(a.name))}</div></div>`).join('')||'<div class="empty">Añade tu primera cuenta desde Cuentas personales.</div>'}</div></div>
-  <div class="card"><div class="cardhead"><h3>Inversiones</h3><span class="muted">capital</span></div><div class="list">${investmentTotals().slice(0,6).map(a=>`<div class="row"><div class="left"><div class="avatar">↗</div><div><div class="name">${esc(a.asset)}</div><div class="small">${a.ops} operación${a.ops===1?'':'es'}</div></div></div><div class="amount gold">${euro(a.total)}</div></div>`).join('')||'<div class="empty">Sin inversiones.</div>'}</div></div>
  </div>
  <div class="grid2 section">
   <div class="card"><div class="cardhead"><h3>Últimos movimientos</h3><button class="btn sm" onclick="go('movimientos')">Ver todos</button></div><div class="list">${db.ops.slice().sort((a,b)=>b.date.localeCompare(a.date)).slice(0,6).map(o=>`<div class="row"><div><div class="name">${esc(o.desc||o.asset||o.type)}</div><div class="small">${o.date} · ${esc(o.origin||o.dest||'')}</div></div><div class="amount ${o.type==='Ingreso'?'green':o.type==='Gasto'?'red':'gold'}">${o.type==='Ingreso'?'+':'-'}${euro(o.amount)}</div></div>`).join('')||'<div class="empty">Sin movimientos.</div>'}</div></div>
   <div class="card"><div class="cardhead"><h3>Inversiones</h3><span class="muted">capital</span></div><div class="list">${investmentTotals().slice(0,6).map(a=>`<div class="row"><div class="left"><div class="avatar">↗</div><div><div class="name">${esc(a.asset)}</div><div class="small">${a.ops} operación${a.ops===1?'':'es'}</div></div></div><div class="amount gold">${euro(a.total)}</div></div>`).join('')||'<div class="empty">Sin inversiones.</div>'}</div></div>
  </div>`;
- setTimeout(drawMonthChart,0);
+ setTimeout(()=>drawAccountChart(acc),0);
 }
 function palette(i){return ['#3b82f6','#9b7cff','#31d39b','#f7c948','#ff647c','#60a5fa','#c084fc','#34d399'][i%8]}
-function monthSeries(){
- const now=new Date(), year=now.getFullYear(), month=now.getMonth(), days=new Date(year,month+1,0).getDate();
- const labels=[],saldo=[],ing=[],gast=[];
- const start=new Date(year,month,1);
- const base=Number(db.accounts.filter(a=>!a.disabled).reduce((s,a)=>s+Number(a.initial||0),0));
- let bal=base, inc=0, exp=0;
- for(let d=1;d<=days;d++){
-   const date=`${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-   db.ops.filter(o=>o.date===date).forEach(o=>{
-     const n=Number(o.amount)||0;
-     if(o.type==='Ingreso'){bal+=n;inc+=n}
-     else if(o.type==='Gasto'){bal-=n;exp+=n}
-     else if(o.type==='Traspaso'){/* patrimonio total unchanged */}
-     else if(o.type==='Inversión'){bal-=n}
-   });
-   labels.push(String(d));saldo.push(bal);ing.push(inc);gast.push(exp);
- }
- return {labels,saldo,ing,gast};
+function drawAccountChart(acc){
+ const c=document.getElementById('dashChart');if(!c)return;const dpr=devicePixelRatio||1,r=c.getBoundingClientRect();c.width=r.width*dpr;c.height=r.height*dpr;const x=c.getContext('2d');x.scale(dpr,dpr);const w=r.width,h=r.height;
+ x.clearRect(0,0,w,h);const vals=acc.map(a=>calcBalance(a.name)),max=Math.max(1,...vals),min=Math.min(0,...vals);for(let i=0;i<4;i++){const y=18+i*(h-40)/3;x.strokeStyle='#1b304b';x.lineWidth=1;x.beginPath();x.moveTo(0,y);x.lineTo(w,y);x.stroke()}
+ const bw=Math.min(70,(w-30)/Math.max(1,acc.length)-12);vals.forEach((v,i)=>{const bh=(v-min)/(max-min||1)*(h-45),x0=18+i*((w-25)/Math.max(1,vals.length));x.fillStyle=palette(i);x.beginPath();x.roundRect(x0,h-20-bh,bw,bh,8);x.fill()})
 }
-function drawMonthChart(){
- const c=document.getElementById('monthChart');if(!c)return;
- const dpr=devicePixelRatio||1,r=c.getBoundingClientRect(),w=r.width,h=r.height;c.width=w*dpr;c.height=h*dpr;
- const ctx=c.getContext('2d');ctx.scale(dpr,dpr);ctx.clearRect(0,0,w,h);
- const z=monthSeries(), all=[...z.saldo,...z.ing,...z.gast], min=Math.min(0,...all),max=Math.max(1,...all), pad={l:54,r:16,t:18,b:30};
- const X=i=>pad.l+i*(w-pad.l-pad.r)/(z.labels.length-1||1),Y=v=>pad.t+(max-v)*(h-pad.t-pad.b)/(max-min||1);
- ctx.font='10px system-ui';ctx.lineWidth=1;ctx.strokeStyle='#1b304b';ctx.fillStyle='#7890ad';
- for(let i=0;i<5;i++){const v=min+(max-min)*i/4,y=Y(v);ctx.beginPath();ctx.moveTo(pad.l,y);ctx.lineTo(w-pad.r,y);ctx.stroke();ctx.fillText(euro(v),5,y+3)}
- z.labels.forEach((d,i)=>{if(i%Math.max(1,Math.ceil(z.labels.length/8))===0||i===z.labels.length-1)ctx.fillText(d,X(i)-4,h-8)});
- function line(data,color){
-   ctx.strokeStyle=color;ctx.lineWidth=2.4;ctx.beginPath();data.forEach((v,i)=>i?ctx.lineTo(X(i),Y(v)):ctx.moveTo(X(i),Y(v)));ctx.stroke();
-   data.forEach((v,i)=>{if(i===data.length-1){ctx.fillStyle=color;ctx.beginPath();ctx.arc(X(i),Y(v),4,0,Math.PI*2);ctx.fill()}})
- }
- line(z.saldo,'#3b82f6');line(z.ing,'#31d39b');line(z.gast,'#ff647c');
-}
-window.addEventListener('resize',()=>{if(view==='dashboard')drawMonthChart()});
-
 function movimientos(el){
  el.innerHTML=`<div class="hero"><div><div class="eyebrow">Registro</div><div class="title">Movimientos</div><div class="subtitle">Todo lo que entra, sale o se mueve entre cuentas.</div></div><button class="btn primary" onclick="newMovement()">＋ Nuevo movimiento</button></div>
  <div class="card"><div class="tablewrap"><table class="table"><thead><tr><th>Fecha</th><th>Tipo</th><th>Descripción</th><th>Cuenta</th><th>Importe</th><th></th></tr></thead><tbody>${db.ops.slice().sort((a,b)=>b.date.localeCompare(a.date)).map(o=>`<tr><td>${o.date}</td><td>${esc(o.type)}</td><td>${esc(o.desc||o.asset||'')}</td><td>${esc(o.origin||o.dest||'')}</td><td class="${o.type==='Ingreso'?'green':o.type==='Gasto'?'red':'gold'}">${euro(o.amount)}</td><td><button class="btn sm danger" onclick="deleteOp('${o.id}')">Eliminar</button></td></tr>`).join('')||'<tr><td colspan="6"><div class="empty">No hay movimientos.</div></td></tr>'}</tbody></table></div></div>`;
@@ -257,10 +236,10 @@ function deleteAsset(asset){const count=db.investments.filter(x=>x.asset===asset
 
 function openSettings(){
  openModal(`<button class="close" onclick="closeModal()">×</button><h2>Configuración</h2>
- <p><span class="syncdot"></span>Sincronización automática con Drive</p>
+ <p><span class="syncdot"></span>Sincronización automática con Google Drive</p>
  <div class="field"><label>URL de sincronización</label><input id="driveUrl" value="${esc(db.settings.driveUrl||DRIVE_URL)}"></div>
  <div class="field" style="margin-top:10px"><label>Clave</label><input id="driveToken" value="${esc(db.settings.driveToken||DRIVE_TOKEN)}"></div>
- <div class="field" style="margin-top:12px"><label><input id="auto" type="checkbox" ${db.settings.autoSync!==false?'checked':''}> Activar sincronización automática</label></div>
+ <div class="field" style="margin-top:12px"><label><input id="auto" type="checkbox" ${db.settings.autoSync!==false?'checked':''}> Sincronizar automáticamente después de cada cambio</label></div>
  <div class="formactions"><button class="btn" onclick="restoreDrive()">☁ Recuperar de Drive</button><button class="btn" onclick="exportData()">Exportar copia</button><button class="btn" onclick="importData()">Importar copia</button><button class="btn primary" onclick="saveSettings()">Guardar</button></div>`)
 }
 
@@ -271,32 +250,21 @@ function saveSettings(){
  localStorage.setItem(KEY,JSON.stringify(db));
  closeModal();
  if(db.settings.autoSync)syncDrive();
- toast('Drive configurado y sincronización automática activada');
+ toast('Sincronización automática activada');
 }
 function restoreDrive(){
- const url=db.settings.driveUrl||DRIVE_URL,token=db.settings.driveToken||DRIVE_TOKEN;
- const cb='gastosRestore_'+Date.now();
- window[cb]=res=>{
-   try{
-     delete window[cb];
-     if(!res||res.ok!==true||!res.data)throw new Error(res?.error||'No se encontró una copia válida.');
-     if(!confirm('Esto sustituirá los datos actuales por la copia de Drive. ¿Continuar?'))return;
-     db=Object.assign(structuredClone(defaults),res.data);
-     db.settings=Object.assign({},structuredClone(defaults.settings),res.data.settings||{}, {driveUrl:url,driveToken:token,autoSync:true});
-     localStorage.setItem(KEY,JSON.stringify(db));closeModal();render();toast('Datos recuperados de Drive');
-   }catch(e){alert('No se pudo recuperar Drive: '+e.message)}
- };
- const sc=document.createElement('script');sc.src=url+'?action=get&token='+encodeURIComponent(token)+'&callback='+cb;
- sc.onerror=()=>{delete window[cb];alert('No se pudo conectar con Drive.')};document.body.appendChild(sc);
+ restoreDriveSilently().then(ok=>{if(!ok)alert('No se pudo recuperar la copia de Drive.')});
 }
 
 function exportData(){const b=new Blob([JSON.stringify(db,null,2)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='GastosApp_copia.json';a.click()}
-function importData(){const i=document.createElement('input');i.type='file';i.accept='.json';i.onchange=()=>{const f=i.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{const x=JSON.parse(r.result);if(!x.accounts||!x.ops)return alert('Copia no válida.');
- db=Object.assign(structuredClone(defaults),x);
- db.investments=db.investments||[];
- db.settings=Object.assign({},structuredClone(defaults.settings),x.settings||{});
- localStorage.setItem(KEY,JSON.stringify(db));closeModal();render();toast('Copia restaurada')}catch(e){alert('No se pudo leer la copia.')}};r.readAsText(f)};i.click()}
+function importData(){const i=document.createElement('input');i.type='file';i.accept='.json';i.onchange=()=>{const f=i.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{const x=JSON.parse(r.result);if(!x.accounts||!x.ops)return alert('Copia no válida.');db=Object.assign(structuredClone(defaults),x);localStorage.setItem(KEY,JSON.stringify(db));closeModal();render();toast('Copia restaurada')}catch(e){alert('No se pudo leer la copia.')}};r.readAsText(f)};i.click()}
 
-render();
+(async function boot(){
+ render();
+ if(!hadLocalDB){
+   const ok=await restoreDriveSilently();
+   if(!ok){localStorage.setItem(KEY,JSON.stringify(db));}
+ }
+})();
 </script>
 </body></html>
