@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="theme-color" content="#111827"><link rel="manifest" href="manifest.json"><title>GastosApp · V23 · Persistencia + Drive · FIX</title>
+<meta name="theme-color" content="#111827"><link rel="manifest" href="manifest.json"><title>GastosApp · V24 · Inversiones + gráficos</title>
 <style>
 :root{--bg:#f5f7fb;--card:#fff;--ink:#111827;--muted:#6b7280;--line:#e5e7eb;--accent:#111827;--green:#15803d;--red:#b91c1c;--yellow:#a16207;--blue:#1d4ed8}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);font-family:Inter,system-ui,-apple-system,Segoe UI,sans-serif;color:var(--ink)}
@@ -40,11 +40,11 @@ nav{gap:6px;margin-bottom:18px}nav button{background:transparent;color:#cbd5e1;b
 </style></head>
 <body>
 <header><div class="top"><div><h1>GastosApp</h1><div class="sub">Septiembre 2026 · cuentas · gastos · patrimonio</div></div><div style="display:flex;gap:8px"><button class="secondary" onclick="openSettings()">⚙</button><button class="secondary" onclick="document.getElementById('roadmapModal').classList.add('show')">🚀 Hoja de ruta</button></div></div></header>
-<main><nav><button class="secondary" onclick="showView('dashboard')">Dashboard</button><button class="secondary" onclick="showView('movimientos')">Movimientos</button><button class="secondary" onclick="showView('cuentas')">Cuentas</button></nav><div id="app"></div></main>
+<main><nav><button class="secondary" onclick="showView('dashboard')">Dashboard</button><button class="secondary" onclick="showView('movimientos')">Movimientos</button><button class="secondary" onclick="showView('cuentas')">Cuentas</button><button class="secondary" onclick="showView('inversiones')">📈 Inversiones</button></nav><div id="app"></div></main>
 <button class="fab" onclick="openOp()">＋ Añadir operación</button>
 
 <div class="modal" id="modal"><div class="sheet"><h2 id="modalTitle">Nueva operación</h2><div class="types"><button class="type active" data-t="Gasto" onclick="setType('Gasto')">💸 Gasto</button><button class="type" data-t="Ingreso" onclick="setType('Ingreso')">💰 Ingreso</button><button class="type" data-t="Traspaso" onclick="setType('Traspaso')">🔄 Traspaso</button><button class="type" data-t="Inversión" onclick="setType('Inversión')">📈 Inversión</button></div>
-<div class="grid"><div><label>Fecha</label><input id="fDate" type="date"></div><div><label>Importe (€)</label><input id="fAmount" type="number" step="0.01" min="0" inputmode="decimal"></div><div><label>Cuenta origen</label><select id="fOrigin"></select></div><div id="destWrap"><label>Cuenta destino</label><select id="fDest"></select></div><div id="catWrap" class="full"><label>Categoría</label><select id="fCat"></select></div><div class="full"><label>Concepto</label><select id="fConcept"></select></div><div class="full"><label>Descripción adicional</label><input id="fDesc" placeholder="Detalle opcional"></div></div>
+<div class="grid"><div><label>Fecha</label><input id="fDate" type="date"></div><div><label>Importe (€)</label><input id="fAmount" type="number" step="0.01" min="0" inputmode="decimal"></div><div><label>Cuenta origen</label><select id="fOrigin"></select></div><div id="destWrap"><label>Cuenta destino</label><select id="fDest"></select></div><div id="catWrap" class="full"><label>Categoría</label><select id="fCat"></select></div><div class="full"><label>Concepto</label><select id="fConcept"></select></div><div id="assetWrap" class="full" style="display:none"><label>Activo (acción / ETF / cripto)</label><input id="fAsset" placeholder="Ej.: S&P 500, BTC, Ethereum, Apple..."></div><div class="full"><label>Descripción adicional</label><input id="fDesc" placeholder="Detalle opcional"></div></div>
 <div class="actions"><button class="secondary" onclick="closeOp()">Cancelar</button><button class="primary" onclick="saveOp()">Guardar operación</button></div></div></div>
 
 <div class="modal" id="settings"><div class="sheet"><h2>Configuración</h2><div class="notice ok">Base actualizada con los datos que me has pasado: saldos iniciales, movimientos y cuentas. Las compras de inversión se registran como operaciones dentro de las cuentas de inversión.</div>
@@ -132,7 +132,7 @@ function baseDB(){
   return {
     accounts:[],cats:[],concepts:[],opening:{},ops:[],investments:[],prices:{},
     categoryMeta:{},conceptMeta:{},accountMeta:{},
-    accountHistory:[],netWorthHistory:[],budgets:{},recurring:[],
+    accountHistory:[],investmentHistory:[],netWorthHistory:[],budgets:{},recurring:[],
     market:{provider:'coingecko+twelvedata',apiKey:'',interval:15},
     typeConfig:{
       Gasto:{label:"Gasto",icon:"💸",enabled:true},
@@ -159,7 +159,7 @@ db.investments=db.investments||[];
 db.prices=db.prices||{};
 db.categoryMeta=db.categoryMeta||{};
 db.conceptMeta=db.conceptMeta||{};
-db.accountMeta=db.accountMeta||{};
+db.accountMeta=db.accountMeta||{}; db.investmentHistory=db.investmentHistory||[];
 db.accountHistory=db.accountHistory||[];
 db.netWorthHistory=db.netWorthHistory||[];
 db.budgets=db.budgets||{};
@@ -210,8 +210,8 @@ function recordAccountSnapshot(){
   const day=new Date().toISOString().slice(0,10);
   db.accountHistory=db.accountHistory||[];
   const snap={date:day,accounts:{}};
-  for(const a of db.accounts){
-    snap.accounts[a]=accountKind(a)==='investment'?totalInvestmentAccount(a):balance(a);
+  for(const a of normalAccounts()){
+    snap.accounts[a]=balance(a);
   }
   const last=db.accountHistory[db.accountHistory.length-1];
   if(!last || last.date!==day) db.accountHistory.push(snap); else last.accounts=snap.accounts;
@@ -225,11 +225,11 @@ function euro(n){return new Intl.NumberFormat('es-ES',{style:'currency',currency
 function balance(acc){let b=Number(db.opening[acc]||0);for(const o of db.ops){if(o.origin===acc){if(o.type==='Ingreso')b+=o.amount;else if(o.type==='Gasto'||o.type==='Inversión'||o.type==='Traspaso')b-=o.amount}if(o.type==='Traspaso'&&o.dest===acc)b+=o.amount}return b}
 function totals(ym){let i=0,g=0,inv=0;for(const o of db.ops){if(o.date.slice(0,7)!==ym)continue;if(o.type==='Ingreso')i+=o.amount;if(o.type==='Gasto')g+=o.amount;if(o.type==='Inversión')inv+=o.amount}return{i,g,inv,r:i-g}}
 function portfolioValue(){return totalInvestedCapital()}function investedCost(){return totalInvestedCapital()}
-function showView(v){if(v==='movimientos')showMovimientos();else if(v==='cuentas')showCuentas();else render()}
+function showView(v){if(v==='movimientos')showMovimientos();else if(v==='cuentas')showCuentas();else if(v==='inversiones')showInvestments();else render()}
 function chartSeries(){
   ensureAccountMeta();
   const history=(db.accountHistory||[]).slice(-120);
-  const names=db.accounts.slice();
+  const names=normalAccounts();
   return {history,names};
 }
 function drawWealthChart(){
@@ -255,6 +255,78 @@ function drawWealthChart(){
   ctx.fillStyle='#94a3b8';ctx.font='10px system-ui';
   const step=Math.max(1,Math.floor(history.length/6));
   history.forEach((h,i)=>{if(i%step===0||i===history.length-1)ctx.fillText(h.date.slice(5),x(i)-12,H-10);});
+}
+function investmentHistorySnapshot(){
+  const history=db.investmentHistory||[];
+  const day=new Date().toISOString().slice(0,10);
+  const assets={};
+  for(const o of investmentOps()){
+    const name=(o.asset||o.desc||'Inversión').trim()||'Inversión';
+    assets[name]=(assets[name]||0)+(Number(o.amount)||0);
+  }
+  const cash=investmentAccounts().reduce((s,a)=>s+balance(a),0);
+  const snap={date:day,assets,cash};
+  const last=history[history.length-1];
+  if(!last||last.date!==day) history.push(snap);
+  else history[history.length-1]=snap;
+  db.investmentHistory=history.slice(-400);
+  localStorage.setItem(KEY,JSON.stringify(db));
+}
+function investmentChartSeries(){
+  investmentHistorySnapshot();
+  const history=(db.investmentHistory||[]).slice(-120);
+  const names=[];
+  history.forEach(h=>Object.keys(h.assets||{}).forEach(n=>{if(!names.includes(n))names.push(n)}));
+  return {history,names};
+}
+function drawInvestmentChart(){
+  const canvas=document.getElementById('investmentChart'); if(!canvas)return;
+  const ctx=canvas.getContext('2d'),rect=canvas.getBoundingClientRect(),dpr=window.devicePixelRatio||1;
+  canvas.width=Math.max(1,rect.width*dpr);canvas.height=Math.max(1,rect.height*dpr);ctx.setTransform(dpr,0,0,dpr,0,0);
+  const W=rect.width,H=rect.height,pad={l:52,r:18,t:18,b:34};
+  ctx.clearRect(0,0,W,H);
+  const {history,names}=investmentChartSeries();
+  const seriesNames=[...names,'Efectivo'];
+  if(!history.length){ctx.fillStyle='#94a3b8';ctx.font='13px system-ui';ctx.fillText('Todavía no hay histórico de inversiones.',20,30);return;}
+  const vals=[];
+  history.forEach(h=>{names.forEach(n=>vals.push(Number(h.assets?.[n]||0)));vals.push(Number(h.cash||0))});
+  let min=0,max=Math.max(1,...vals),span=Math.max(1,max-min),yMin=Math.min(0,min-span*.08),yMax=max+span*.08;
+  const x=i=>pad.l+(i/Math.max(1,history.length-1))*(W-pad.l-pad.r);
+  const y=v=>H-pad.b-((v-yMin)/(yMax-yMin))*(H-pad.t-pad.b);
+  ctx.strokeStyle='#243244';ctx.lineWidth=1;ctx.font='10px system-ui';ctx.fillStyle='#94a3b8';
+  for(let j=0;j<5;j++){const yy=pad.t+j*(H-pad.t-pad.b)/4;ctx.beginPath();ctx.moveTo(pad.l,yy);ctx.lineTo(W-pad.r,yy);ctx.stroke();ctx.fillText(euro(yMax-(yMax-yMin)*j/4),4,yy+3)}
+  const palette=['#3b82f6','#a855f7','#22c55e','#f59e0b','#ef4444','#06b6d4','#eab308','#ec4899','#14b8a6','#8b5cf6','#fb7185','#38bdf8'];
+  seriesNames.forEach((n,idx)=>{
+    ctx.beginPath();
+    history.forEach((h,i)=>{const v=n==='Efectivo'?Number(h.cash||0):Number(h.assets?.[n]||0);const xx=x(i),yy=y(v);i?ctx.lineTo(xx,yy):ctx.moveTo(xx,yy)});
+    ctx.strokeStyle=n==='Efectivo'?'#cbd5e1':palette[idx%palette.length];ctx.lineWidth=n==='Efectivo'?2.5:2;ctx.setLineDash(n==='Efectivo'?[7,5]:[]);ctx.stroke();ctx.setLineDash([]);
+  });
+  const step=Math.max(1,Math.floor(history.length/6));
+  ctx.fillStyle='#94a3b8';ctx.font='10px system-ui';
+  history.forEach((h,i)=>{if(i%step===0||i===history.length-1)ctx.fillText(h.date.slice(5),x(i)-12,H-10)});
+}
+function showInvestments(){
+  ensureAccountMeta();
+  investmentHistorySnapshot();
+  const ops=investmentOps();
+  const byAsset={};
+  for(const o of ops){
+    const name=(o.asset||o.desc||'Inversión').trim()||'Inversión';
+    byAsset[name]=(byAsset[name]||0)+(Number(o.amount)||0);
+  }
+  const cash=investmentAccounts().reduce((s,a)=>s+balance(a),0);
+  const invested=Object.values(byAsset).reduce((s,v)=>s+v,0);
+  const total=invested+cash;
+  document.getElementById('app').innerHTML=`<div class="dashboardHero">
+<div class="sectionTitle"><div><h2 style="font-size:24px;margin:0">Inversiones</h2><div class="small">Seguimiento de compras realizadas desde tus cuentas de inversión</div></div></div>
+<div class="statGrid"><div class="miniCard"><div class="label">Valor cartera</div><div class="value">${euro(total)}</div></div><div class="miniCard"><div class="label">Capital invertido</div><div class="value yellow">${euro(invested)}</div></div><div class="miniCard"><div class="label">Efectivo disponible</div><div class="value blue">${euro(cash)}</div></div><div class="miniCard"><div class="label">Activos</div><div class="value">${Object.keys(byAsset).length}</div></div></div>
+<div class="chartCard"><div class="chartHead"><div><div class="chartTitle">Evolución de la cartera de inversiones</div><div class="chartSub">Una línea por acción, ETF o cripto · línea discontinua = efectivo</div></div></div><div class="chartWrap"><canvas id="investmentChart"></canvas></div><div class="legend">${Object.keys(byAsset).map((n,i)=>`<span class="legendItem"><span class="legendDot" style="background:${['#3b82f6','#a855f7','#22c55e','#f59e0b','#ef4444','#06b6d4','#eab308','#ec4899','#14b8a6','#8b5cf6'][i%10]}"></span>${n}</span>`).join('')}<span class="legendItem"><span style="display:inline-block;width:14px;border-top:2px dashed #cbd5e1"></span>Efectivo</span></div></div>
+<div class="summaryGrid"><div class="summaryPanel invest"><div class="summaryPanelHead"><div><h3>📊 Activos</h3><div class="bigMoney">${euro(invested)}</div></div><div class="delta" style="color:#a855f7">Capital comprado</div></div>${Object.entries(byAsset).map(([n,v])=>`<div class="accountRow"><div><div class="accountName"><span class="accountBadge">📈</span>${n}</div><div class="accountKind">Compras acumuladas</div></div><div class="accountAmount">${euro(v)}</div><div class="accountPct">${invested?((v/invested)*100).toFixed(1):'0.0'}%</div></div>`).join('')||'<div class="empty">Todavía no hay inversiones.</div>'}</div>
+<div class="summaryPanel"><div class="summaryPanelHead"><div><h3>💶 Efectivo</h3><div class="bigMoney">${euro(cash)}</div></div><div class="delta">Cuentas de inversión</div></div>${investmentAccounts().map(a=>`<div class="accountRow"><div><div class="accountName"><span class="accountBadge">🏦</span>${a}</div><div class="accountKind">Efectivo disponible</div></div><div class="accountAmount">${euro(balance(a))}</div><div class="accountPct">${cash?((balance(a)/cash)*100).toFixed(1):'0.0'}%</div></div>`).join('')||'<div class="empty">No hay cuentas de inversión.</div>'}</div></div>
+<div class="section"><div class="sectionTitle"><h2>Compras de inversión</h2><button class="secondary" onclick="openOp()">＋ Nueva compra</button></div><div class="scroll"><table><thead><tr><th>Fecha</th><th>Activo</th><th>Cuenta</th><th>Importe</th><th></th></tr></thead><tbody>${ops.map(o=>`<tr><td>${o.date}</td><td>${o.asset||o.desc}</td><td>${o.origin}</td><td class="yellow">${euro(o.amount)}</td><td><button class="secondary" onclick="editOp('${o.id}')">Editar</button> <button class="danger" onclick="deleteOp('${o.id}')">×</button></td></tr>`).join('')||'<tr><td colspan="5">No hay compras de inversión.</td></tr>'}</tbody></table></div></div>
+<div class="notice ok">Las inversiones pertenecen a sus cuentas de inversión. La gráfica principal del patrimonio muestra solo cuentas normales; esta gráfica muestra exclusivamente la cartera de inversión y su efectivo.</div>
+</div>`;
+  drawInvestmentChart();
 }
 function render(){
   ensureAccountMeta();
@@ -282,11 +354,11 @@ function showCuentas(){
   document.getElementById('app').innerHTML=`<div class="section"><h2>💳 Cuentas normales</h2><div class="accounts">${normal.map(accountCard).join('')||'<div class="empty">No hay cuentas normales.</div>'}</div></div><div class="section"><h2>📈 Cuentas de inversión</h2><div class="accounts">${invest.map(accountCard).join('')||'<div class="empty">No hay cuentas de inversión.</div>'}</div></div><div class="section"><h2>Compras de inversión</h2><div class="scroll"><table><thead><tr><th>Fecha</th><th>Cuenta</th><th>Concepto</th><th>Categoría</th><th>Importe</th></tr></thead><tbody>${invOps.map(o=>`<tr><td>${o.date}</td><td>${o.origin}</td><td>${o.desc}</td><td>${o.cat||'—'}</td><td class="yellow">${euro(o.amount)}</td></tr>`).join('')||'<tr><td colspan="5">No hay compras de inversión registradas.</td></tr>'}</tbody></table></div></div><div class="notice ok" style="margin-top:14px">Las inversiones ya no se gestionan como productos independientes. Una compra hecha desde una cuenta marcada como <b>Cuenta de inversión</b> queda registrada aquí automáticamente.</div>`;
 }
 function showInvestments(){showCuentas()}
-function openOp(editId){window.editingOp=editId||null;document.getElementById('modalTitle').textContent=editId?'Editar operación':'Nueva operación';type='Gasto';document.querySelectorAll('.type').forEach(b=>b.classList.toggle('active',b.dataset.t===type));const o=editId?db.ops.find(x=>x.id===editId):null;document.getElementById('fDate').value=o?.date||new Date().toISOString().slice(0,10);document.getElementById('fAmount').value=o?.amount||'';fillSelect('fOrigin',db.accounts,o?.origin||db.accounts[0]);fillSelect('fDest',db.accounts,o?.dest||db.accounts[1]);fillSelect('fCat',db.cats,o?.cat||db.cats[0]);fillSelect('fConcept',['',...db.concepts],o?.desc||'');document.getElementById('fDesc').value='';setType(o?.type||'Gasto');document.getElementById('modal').classList.add('show')}
+function openOp(editId){window.editingOp=editId||null;document.getElementById('modalTitle').textContent=editId?'Editar operación':'Nueva operación';type='Gasto';document.querySelectorAll('.type').forEach(b=>b.classList.toggle('active',b.dataset.t===type));const o=editId?db.ops.find(x=>x.id===editId):null;document.getElementById('fDate').value=o?.date||new Date().toISOString().slice(0,10);document.getElementById('fAmount').value=o?.amount||'';fillSelect('fOrigin',db.accounts,o?.origin||db.accounts[0]);fillSelect('fDest',db.accounts,o?.dest||db.accounts[1]);fillSelect('fCat',db.cats,o?.cat||db.cats[0]);fillSelect('fConcept',['',...db.concepts],o?.desc||'');document.getElementById('fDesc').value='';if(document.getElementById('fAsset'))document.getElementById('fAsset').value=o?.asset||'';setType(o?.type||'Gasto');document.getElementById('modal').classList.add('show')}
 function fillSelect(id,arr,val){document.getElementById(id).innerHTML=arr.map(x=>`<option value="${String(x).replaceAll('"','&quot;')}">${x||'— Sin concepto —'}</option>`).join('');if(arr.includes(val))document.getElementById(id).value=val}
-function setType(t){type=t;document.querySelectorAll('.type').forEach(b=>b.classList.toggle('active',b.dataset.t===t));document.getElementById('destWrap').style.display=t==='Traspaso'?'block':'none';document.getElementById('catWrap').style.display=t==='Traspaso'?'none':'block';const o=document.getElementById('fOrigin');if(t==='Inversión')fillSelect('fOrigin',investmentAccounts(),o.value||investmentAccounts()[0]);else fillSelect('fOrigin',db.accounts,o.value||db.accounts[0])}
+function setType(t){type=t;document.querySelectorAll('.type').forEach(b=>b.classList.toggle('active',b.dataset.t===t));document.getElementById('destWrap').style.display=t==='Traspaso'?'block':'none';document.getElementById('catWrap').style.display=t==='Traspaso'?'none':'block';if(document.getElementById('assetWrap'))document.getElementById('assetWrap').style.display=t==='Inversión'?'block':'none';const o=document.getElementById('fOrigin');if(t==='Inversión')fillSelect('fOrigin',investmentAccounts(),o.value||investmentAccounts()[0]);else fillSelect('fOrigin',db.accounts,o.value||db.accounts[0])}
 function closeOp(){document.getElementById('modal').classList.remove('show');window.editingOp=null}
-function saveOp(){const amount=Number(document.getElementById('fAmount').value);if(!amount||amount<0)return alert('Introduce un importe válido.');const origin=document.getElementById('fOrigin').value;if(type==='Inversión'&&accountKind(origin)!=='investment')return alert('Una compra de inversión debe salir de una cuenta marcada como Cuenta de inversión.');const o={id:window.editingOp||crypto.randomUUID(),date:document.getElementById('fDate').value,type,cat:document.getElementById('fCat').value,desc:document.getElementById('fConcept').value||document.getElementById('fDesc').value||type,amount,origin,dest:type==='Traspaso'?document.getElementById('fDest').value:''};if(window.editingOp){const i=db.ops.findIndex(x=>x.id===window.editingOp);db.ops[i]=o}else db.ops.push(o);save();closeOp();showView('movimientos')}
+function saveOp(){const amount=Number(document.getElementById('fAmount').value);if(!amount||amount<0)return alert('Introduce un importe válido.');const origin=document.getElementById('fOrigin').value;if(type==='Inversión'&&accountKind(origin)!=='investment')return alert('Una compra de inversión debe salir de una cuenta marcada como Cuenta de inversión.');const asset=(document.getElementById('fAsset')?.value||'').trim();if(type==='Inversión'&&!asset)return alert('Indica el activo: acción, ETF o cripto.');const o={id:window.editingOp||crypto.randomUUID(),date:document.getElementById('fDate').value,type,cat:document.getElementById('fCat').value,desc:document.getElementById('fConcept').value||asset||document.getElementById('fDesc').value||type,asset: type==='Inversión'?asset:'',amount,origin,dest:type==='Traspaso'?document.getElementById('fDest').value:''};if(window.editingOp){const i=db.ops.findIndex(x=>x.id===window.editingOp);db.ops[i]=o}else db.ops.push(o);save();closeOp();showView(type==='Inversión'?'inversiones':'movimientos')}
 function editOp(id){openOp(id)}function deleteOp(id){if(confirm('¿Eliminar esta operación?')){db.ops=db.ops.filter(x=>x.id!==id);save();showMovimientos()}}
 function manageBudgets(){
   const cat=prompt('Categoría para presupuesto',Object.keys(db.budgets||{})[0]||db.cats[0]);if(!cat)return;
