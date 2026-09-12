@@ -171,7 +171,7 @@ db.budgets=db.budgets||{};
 db.recurring=db.recurring||[];
 db.market=db.market||{provider:'coingecko+twelvedata',apiKey:'',interval:15};
 db.typeConfig=db.typeConfig||baseDB().typeConfig;
-db.version=32;
+db.version=33;
 
 function save(){
   localStorage.setItem(KEY,JSON.stringify(db));
@@ -227,13 +227,20 @@ function ensureAssetMeta(){
   db.assetMeta=db.assetMeta||{};
   let changed=false;
 
-  // Migrate the older fixed-position model (db.investments) into the new
-  // position model. Do NOT turn these positions into purchases, because doing
-  // so would alter account balances. They are opening positions.
+  // Recover the legacy fixed portfolio once if it exists in the base data.
+  // This does not create movements, so it cannot alter account balances.
+  if(Object.keys(db.assetMeta).length===0 && !(db.ops||[]).some(o=>o.type==='Inversión') &&
+     Array.isArray(db.investments) && db.investments.length===0 &&
+     typeof BASE_INV!=='undefined' && BASE_INV.length){
+    db.investments=BASE_INV.map(p=>({...p}));
+    changed=true;
+  }
+
+  // Migrate legacy fixed positions to persistent asset metadata.
   (db.investments||[]).forEach(p=>{
     const n=(p.name||p.title||p.asset||'').trim();
     if(!n)return;
-    const old= db.assetMeta[n] || {};
+    const old=db.assetMeta[n]||{};
     if(!db.assetMeta[n]){
       db.assetMeta[n]={
         enabled:true,
@@ -253,9 +260,14 @@ function ensureAssetMeta(){
       if(!old.symbol && (p.symbol||p.ticker)){old.symbol=p.symbol||p.ticker;changed=true}
       if(!old.isin && p.isin){old.isin=p.isin;changed=true}
     }
+    // Any account holding a legacy investment position must be an investment account.
+    if(p.account && db.accounts.includes(p.account) && accountKind(p.account)!=='investment'){
+      db.accountMeta[p.account]={...(db.accountMeta[p.account]||{}),kind:'investment'};
+      changed=true;
+    }
   });
 
-  // Make sure assets referenced by actual investment purchases exist.
+  // Ensure assets referenced by purchases exist and normalize old purchases.
   (db.ops||[]).filter(o=>o.type==='Inversión').forEach(o=>{
     const n=(o.asset||o.desc||'Inversión').trim();
     if(n && !db.assetMeta[n]){db.assetMeta[n]={enabled:true,marketValue:null,openingQuantity:0,openingCost:0};changed=true}
@@ -265,6 +277,7 @@ function ensureAssetMeta(){
       changed=true;
     }
   });
+
   if(changed)localStorage.setItem(KEY,JSON.stringify(db));
 }
 function investmentAssets(){
@@ -628,7 +641,7 @@ function showInvestments(){
           <div class="trCell"><span class="muted">VALOR MERCADO</span><span class="trMarket">${mv===null?'—':euro(mv)}</span></div>
           <div class="trCell"><span class="muted">RENDIMIENTO</span><span class="trPnl ${gain===null?'':gain>=0?'pos':'neg'}">${gain===null?'—':(gain>=0?'+':'')+euro(gain)}</span></div>
           <div class="trCell"><span class="muted">%</span><span class="trPnl ${pct===null?'':pct>=0?'pos':'neg'}">${pct===null?'—':(pct>=0?'+':'')+pct.toFixed(2)+'%'}</span></div>
-          <div class="trCell"><span class="muted">ACTUALIZAR VALOR</span><input class="trInput" type="number" min="0" step="0.01" value="${mv===null?'':mv}" placeholder="€" onchange="saveMarketValue('${esc(n)}',this.value)"></div>
+          <div class="trCell"><span class="muted">VALOR TOTAL ACTUAL (€)</span><input class="trInput" type="number" min="0" step="0.01" value="${mv===null?'':mv}" placeholder="€" onchange="saveMarketValue('${esc(n)}',this.value)"></div>
           <div class="trCell"><button class="trBtn" style="padding:7px 9px;font-size:10px" onclick="removeInvestmentAsset('${esc(n)}')">Eliminar</button></div>
         </div>`;
       }).join('')||'<div class="trEmpty">Todavía no tienes activos. Pulsa «Añadir activo» para crear tu primera posición.</div>'}
@@ -756,12 +769,13 @@ function saveOp(){
     quantity=Number(document.getElementById('fQuantity').value);
     if(!Number.isFinite(quantity)||quantity<=0)return alert('Indica una cantidad de activo válida.');
     const rawPrice=document.getElementById('fUnitPrice').value;
-    unitPrice=rawPrice===''?amount/quantity:Number(rawPrice);
-    if(!Number.isFinite(unitPrice)||unitPrice<=0)return alert('Indica un precio por unidad válido.');
-    const calculated=quantity*unitPrice;
-    if(Math.abs(calculated-amount)>0.01){
-      if(!confirm('Cantidad × precio unitario = '+euro(calculated)+' y el importe = '+euro(amount)+'. ¿Usar '+euro(calculated)+' como importe de compra?'))return;
-      amount=calculated;
+    if(rawPrice===''){
+      if(!amount || amount<=0)return alert('Indica el importe de la compra o el precio por unidad.');
+      unitPrice=amount/quantity;
+    }else{
+      unitPrice=Number(rawPrice);
+      if(!Number.isFinite(unitPrice)||unitPrice<=0)return alert('Indica un precio por unidad válido.');
+      amount=quantity*unitPrice;
       document.getElementById('fAmount').value=amount.toFixed(2);
     }
     ensureAssetMeta();
