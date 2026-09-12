@@ -171,7 +171,7 @@ db.budgets=db.budgets||{};
 db.recurring=db.recurring||[];
 db.market=db.market||{provider:'coingecko+twelvedata',apiKey:'',interval:15};
 db.typeConfig=db.typeConfig||baseDB().typeConfig;
-db.version=28;
+db.version=32;
 
 function save(){
   localStorage.setItem(KEY,JSON.stringify(db));
@@ -226,19 +226,61 @@ function totalInvestedCapital(){return investmentAccounts().reduce((s,a)=>s+inve
 function ensureAssetMeta(){
   db.assetMeta=db.assetMeta||{};
   let changed=false;
+
+  // Migrate the older fixed-position model (db.investments) into the new
+  // position model. Do NOT turn these positions into purchases, because doing
+  // so would alter account balances. They are opening positions.
+  (db.investments||[]).forEach(p=>{
+    const n=(p.name||p.title||p.asset||'').trim();
+    if(!n)return;
+    const old= db.assetMeta[n] || {};
+    if(!db.assetMeta[n]){
+      db.assetMeta[n]={
+        enabled:true,
+        marketValue:p.value==null?null:Number(p.value),
+        openingQuantity:Number(p.quantity)||0,
+        openingCost:(Number(p.quantity)||0)*(Number(p.avgPrice)||0),
+        openingAvgPrice:Number(p.avgPrice)||0,
+        symbol:p.symbol||p.ticker||'',
+        isin:p.isin||''
+      };
+      changed=true;
+    }else{
+      if(old.marketValue==null && p.value!=null){old.marketValue=Number(p.value);changed=true}
+      if(!old.openingQuantity && p.quantity){old.openingQuantity=Number(p.quantity);changed=true}
+      if(!old.openingCost && p.quantity && p.avgPrice){old.openingCost=Number(p.quantity)*Number(p.avgPrice);changed=true}
+      if(!old.openingAvgPrice && p.avgPrice){old.openingAvgPrice=Number(p.avgPrice);changed=true}
+      if(!old.symbol && (p.symbol||p.ticker)){old.symbol=p.symbol||p.ticker;changed=true}
+      if(!old.isin && p.isin){old.isin=p.isin;changed=true}
+    }
+  });
+
+  // Make sure assets referenced by actual investment purchases exist.
   (db.ops||[]).filter(o=>o.type==='Inversión').forEach(o=>{
     const n=(o.asset||o.desc||'Inversión').trim();
-    if(n&&!db.assetMeta[n]){db.assetMeta[n]={enabled:true,marketValue:null};changed=true}
-    if(o.quantity===undefined||o.quantity===null||o.quantity===''){o.quantity=1;o.unitPrice=Number(o.amount)||0;changed=true}
+    if(n && !db.assetMeta[n]){db.assetMeta[n]={enabled:true,marketValue:null,openingQuantity:0,openingCost:0};changed=true}
+    if(o.quantity===undefined||o.quantity===null||o.quantity===''){
+      o.quantity=1;
+      o.unitPrice=Number(o.amount)||0;
+      changed=true;
+    }
   });
   if(changed)localStorage.setItem(KEY,JSON.stringify(db));
 }
 function investmentAssets(){
   ensureAssetMeta();
-  return Object.keys(db.assetMeta||{}).filter(n=>db.assetMeta[n]?.enabled!==false);
+  const names=new Set(Object.keys(db.assetMeta||{}));
+  investmentOps().forEach(o=>names.add((o.asset||o.desc||'Inversión').trim()||'Inversión'));
+  return [...names].filter(n=>db.assetMeta[n]?.enabled!==false);
 }
+
 function investmentQuantityByAsset(){
+  ensureAssetMeta();
   const out={};
+  Object.keys(db.assetMeta||{}).forEach(n=>{
+    const q=Number(db.assetMeta[n]?.openingQuantity)||0;
+    if(q)out[n]=(out[n]||0)+q;
+  });
   investmentOps().forEach(o=>{
     const n=(o.asset||o.desc||'Inversión').trim()||'Inversión';
     const q=Number(o.quantity);
@@ -246,17 +288,22 @@ function investmentQuantityByAsset(){
   });
   return out;
 }
-function investmentAveragePriceByAsset(){
-  const qty=investmentQuantityByAsset(),cost=investmentCostByAsset(),out={};
-  Object.keys(cost).forEach(n=>out[n]=qty[n]?cost[n]/qty[n]:0);
-  return out;
-}
 function investmentCostByAsset(){
+  ensureAssetMeta();
   const out={};
+  Object.keys(db.assetMeta||{}).forEach(n=>{
+    const c=Number(db.assetMeta[n]?.openingCost)||0;
+    if(c)out[n]=(out[n]||0)+c;
+  });
   investmentOps().forEach(o=>{
     const n=(o.asset||o.desc||'Inversión').trim()||'Inversión';
     out[n]=(out[n]||0)+(Number(o.amount)||0);
   });
+  return out;
+}
+function investmentAveragePriceByAsset(){
+  const qty=investmentQuantityByAsset(),cost=investmentCostByAsset(),out={};
+  Object.keys(qty).forEach(n=>out[n]=qty[n]?cost[n]/qty[n]:0);
   return out;
 }
 function currentMarketValue(n){
@@ -282,7 +329,7 @@ function saveMarketValue(n,v){
   const value=Number(v);
   if(!Number.isFinite(value)||value<0)return alert('Introduce un valor de mercado válido.');
   db.assetMeta[n]=db.assetMeta[n]||{enabled:true};
-  db.assetMeta[n].marketValue=value;
+  db.assetMeta[n].marketValue=value; db.assetMeta[n].enabled=true;
   recordAssetMarketSnapshot();
   save();
   showView('inversiones');
@@ -306,6 +353,7 @@ function removeInvestmentAsset(n){
     : '¿Eliminar el activo "'+n+'"?';
   if(!confirm(msg))return;
   if(ops.length)db.ops=(db.ops||[]).filter(o=>!ops.includes(o));
+  if(Array.isArray(db.investments))db.investments=db.investments.filter(p=>(p.name||p.title||p.asset||'').trim()!==n);
   delete db.assetMeta[n];
   (db.assetMarketHistory||[]).forEach(h=>{if(h.assets)delete h.assets[n]});
   save();showView('inversiones');
@@ -431,11 +479,13 @@ function investmentChartSeries(){
   const allDates=dateRange(uniq[0]||end,end);
   const names=investmentAssets();
   const history=allDates.map(day=>{
-    const snap=(db.assetMarketHistory||[]).filter(h=>h.date<=day).sort((a,b)=>a.date.localeCompare(b.date)).at(-1);
+    const prior=(db.assetMarketHistory||[]).filter(h=>h.date<=day).sort((a,b)=>a.date.localeCompare(b.date)).at(-1);
     const assets={};
     names.forEach(n=>{
-      const v=snap?.assets?.[n];
-      assets[n]=v===undefined?0:Number(v)||0;
+      const v=prior?.assets?.[n];
+      if(v!==undefined) assets[n]=Number(v)||0;
+      else if(day===end && currentMarketValue(n)!==null) assets[n]=Number(currentMarketValue(n))||0;
+      else assets[n]=0;
     });
     return {date:day,assets,cash:investmentAccounts().reduce((s,a)=>s+balance(a),0)};
   });
@@ -800,7 +850,7 @@ function importBackup(ev){
       const p=JSON.parse(r.result), d=p.data||p;
       if(!d.accounts||!d.ops) throw new Error("Formato no válido");
       if(!confirm("Esto sustituirá los datos actuales por la copia. ¿Continuar?")) return;
-      db=d; window.db=db; db.version=31; db.investments=db.investments||[]; db.prices=db.prices||{}; db.assetMeta=db.assetMeta||{}; db.assetMarketHistory=db.assetMarketHistory||[]; save(); render(); closeSettings();
+      db=d; window.db=db; db.version=32; db.investments=db.investments||[]; db.prices=db.prices||{}; db.assetMeta=db.assetMeta||{}; db.assetMarketHistory=db.assetMarketHistory||[]; save(); render(); closeSettings();
       alert("Copia restaurada correctamente.");
     }catch(e){alert("No se pudo importar la copia: "+e.message)}
   };
@@ -835,7 +885,7 @@ function restoreFromDrive(){
       if(!res||res.ok!==true) throw new Error(res?.error||"No se pudo recuperar la copia.");
       if(!res.data?.accounts||!res.data?.ops) throw new Error("Copia inválida.");
       if(confirm("Esto sustituirá los datos actuales por la copia de Drive. ¿Continuar?")){
-        db=res.data;window.db=db;db.version=29;db.accounts=db.accounts||[];db.cats=db.cats||[];db.concepts=db.concepts||[];db.opening=db.opening||{};db.ops=db.ops||[];db.investments=db.investments||[];db.prices=db.prices||{};db.accountHistory=db.accountHistory||[];db.investmentHistory=db.investmentHistory||[];db.categoryMeta=db.categoryMeta||{};db.conceptMeta=db.conceptMeta||{};db.accountMeta=db.accountMeta||{};db.assetMeta=db.assetMeta||{};db.assetMarketHistory=db.assetMarketHistory||[];db.typeConfig=db.typeConfig||baseDB().typeConfig;save();render();closeSettings();alert("Datos recuperados de Drive.");
+        db=res.data;window.db=db;db.version=32;db.accounts=db.accounts||[];db.cats=db.cats||[];db.concepts=db.concepts||[];db.opening=db.opening||{};db.ops=db.ops||[];db.investments=db.investments||[];db.prices=db.prices||{};db.accountHistory=db.accountHistory||[];db.investmentHistory=db.investmentHistory||[];db.categoryMeta=db.categoryMeta||{};db.conceptMeta=db.conceptMeta||{};db.accountMeta=db.accountMeta||{};db.assetMeta=db.assetMeta||{};db.assetMarketHistory=db.assetMarketHistory||[];db.typeConfig=db.typeConfig||baseDB().typeConfig;save();render();closeSettings();alert("Datos recuperados de Drive.");
       }
       setSyncStatus("Datos recibidos de Drive.");
     }catch(e){setSyncStatus("Error: "+e.message)}
@@ -884,6 +934,7 @@ function autoRestoreIfEmpty(){
   const sc=document.createElement("script");sc.src=c.url+"?action=get&token="+encodeURIComponent(c.token)+"&callback="+cb;document.body.appendChild(sc);
 }
 setTimeout(autoRestoreIfEmpty,700);
+ensureAssetMeta();
 render();
 </script>
 <div id="roadmapModal" class="modal">
