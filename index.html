@@ -118,6 +118,7 @@ async function restoreDriveSilently(force=false){
      try{sc.remove()}catch(e){}
      clearTimeout(timer); resolve(v);
    };
+   let timer=null;
    window[cb]=res=>{
      try{
        if(!res||res.ok!==true||!res.data) return cleanup(false);
@@ -126,9 +127,9 @@ async function restoreDriveSilently(force=false){
    };
    sc.async=true;
    sc.onerror=()=>{driveStatus='error';updateSyncBadge();cleanup(false)};
+   timer=setTimeout(()=>{driveStatus='error';updateSyncBadge();cleanup(false)},20000);
    sc.src=url+'?action=get&token='+encodeURIComponent(token)+'&callback='+cb+'&_='+Date.now();
    document.body.appendChild(sc);
-   const timer=setTimeout(()=>{driveStatus='error';updateSyncBadge();cleanup(false)},20000);
  });
 }
 
