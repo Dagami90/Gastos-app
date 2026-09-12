@@ -145,7 +145,7 @@ function baseDB(){
       Traspaso:{label:"Traspaso",icon:"🔄",enabled:true},
       Inversión:{label:"Inversión",icon:"📈",enabled:true}
     },
-    version:25
+    version:27
   }
 }
 let syncTimer=null;
@@ -171,7 +171,7 @@ db.budgets=db.budgets||{};
 db.recurring=db.recurring||[];
 db.market=db.market||{provider:'coingecko+twelvedata',apiKey:'',interval:15};
 db.typeConfig=db.typeConfig||baseDB().typeConfig;
-db.version=23;
+db.version=28;
 
 function save(){
   localStorage.setItem(KEY,JSON.stringify(db));
@@ -197,8 +197,21 @@ function ensureAccountMeta(){
   let changed=false;
   for(const a of db.accounts){
     if(!db.accountMeta[a]){
-      db.accountMeta[a]={kind:/trade republic|broker|degiro|binance|coinbase|revolut investment/i.test(a)?'investment':'normal'};
+      db.accountMeta[a]={kind:'normal'};
       changed=true;
+    }
+  }
+  // Legacy migration: an account explicitly named "Inversion"/"Inversiones" with
+  // no normal-account movements is almost certainly the old investment account.
+  // Do not change accounts that already contain normal activity.
+  for(const a of db.accounts){
+    if(/inversi[oó]n(es)?/i.test(a) && db.accountMeta[a]?.kind==='normal'){
+      const hasNormalActivity=(db.ops||[]).some(o=>o.origin===a && o.type!=='Inversión') ||
+                              (db.ops||[]).some(o=>o.dest===a && o.type==='Traspaso');
+      if(!hasNormalActivity){
+        db.accountMeta[a]={kind:'investment'};
+        changed=true;
+      }
     }
   }
   if(changed) localStorage.setItem(KEY,JSON.stringify(db));
@@ -224,7 +237,7 @@ function recordAccountSnapshot(){
   localStorage.setItem(KEY,JSON.stringify(db));
 }
 
-function setAutoSync(v){localStorage.setItem("gastosAutoSync","true");syncToDrive(true)}
+function setAutoSync(v){localStorage.setItem("gastosAutoSync","true");const a=document.getElementById("autoSyncToggle");if(a)a.checked=true;syncToDrive(true)}
 function netWorth(){return db.accounts.reduce((s,a)=>s+(accountKind(a)==='investment'?totalInvestmentAccount(a):balance(a)),0)}
 function euro(n){return new Intl.NumberFormat('es-ES',{style:'currency',currency:'EUR'}).format(Number(n)||0)}function monthName(ym){return new Date(ym+'-01T12:00:00').toLocaleDateString('es-ES',{month:'long',year:'numeric'}).replace(/^./,x=>x.toUpperCase())}
 function balance(acc){let b=Number(db.opening[acc]||0);for(const o of db.ops){if(o.origin===acc){if(o.type==='Ingreso')b+=o.amount;else if(o.type==='Gasto'||o.type==='Inversión'||o.type==='Traspaso')b-=o.amount}if(o.type==='Traspaso'&&o.dest===acc)b+=o.amount}return b}
@@ -260,6 +273,18 @@ function drawWealthChart(){
   ctx.fillStyle='#94a3b8';ctx.font='10px system-ui';
   const step=Math.max(1,Math.floor(history.length/6));
   history.forEach((h,i)=>{if(i%step===0||i===history.length-1)ctx.fillText(h.date.slice(5),x(i)-12,H-10);});
+}
+function investmentCashAt(acc,day){
+  let b=Number(db.opening[acc]||0);
+  for(const o of db.ops||[]){
+    if(!o.date || o.date>day) continue;
+    if(o.origin===acc){
+      if(o.type==='Ingreso') b+=Number(o.amount)||0;
+      else if(o.type==='Gasto'||o.type==='Inversión'||o.type==='Traspaso') b-=Number(o.amount)||0;
+    }
+    if(o.type==='Traspaso' && o.dest===acc) b+=Number(o.amount)||0;
+  }
+  return b;
 }
 function investmentDailySeries(){
   const dates=(db.ops||[]).map(o=>o.date).filter(Boolean).sort();
@@ -325,12 +350,12 @@ function showInvestments(){
   const total=invested+cash;
   document.getElementById('app').innerHTML=`<div class="dashboardHero">
 <div class="sectionTitle"><div><h2 style="font-size:24px;margin:0">Inversiones</h2><div class="small">Seguimiento de compras realizadas desde tus cuentas de inversión</div></div></div>
-<div class="statGrid"><div class="miniCard"><div class="label">Valor cartera</div><div class="value">${euro(total)}</div></div><div class="miniCard"><div class="label">Capital invertido</div><div class="value yellow">${euro(invested)}</div></div><div class="miniCard"><div class="label">Efectivo disponible</div><div class="value blue">${euro(cash)}</div></div><div class="miniCard"><div class="label">Activos</div><div class="value">${Object.keys(byAsset).length}</div></div></div>
+<div class="statGrid"><div class="miniCard"><div class="label">Cartera contabilizada</div><div class="value">${euro(total)}</div></div><div class="miniCard"><div class="label">Capital invertido</div><div class="value yellow">${euro(invested)}</div></div><div class="miniCard"><div class="label">Efectivo disponible</div><div class="value blue">${euro(cash)}</div></div><div class="miniCard"><div class="label">Activos</div><div class="value">${Object.keys(byAsset).length}</div></div></div>
 <div class="chartCard"><div class="chartHead"><div><div class="chartTitle">Evolución de la cartera de inversiones</div><div class="chartSub">Una línea por acción, ETF o cripto · línea discontinua = efectivo</div></div></div><div class="chartWrap"><canvas id="investmentChart"></canvas></div><div class="legend">${Object.keys(byAsset).map((n,i)=>`<span class="legendItem"><span class="legendDot" style="background:${['#3b82f6','#a855f7','#22c55e','#f59e0b','#ef4444','#06b6d4','#eab308','#ec4899','#14b8a6','#8b5cf6'][i%10]}"></span>${n}</span>`).join('')}<span class="legendItem"><span style="display:inline-block;width:14px;border-top:2px dashed #cbd5e1"></span>Efectivo</span></div></div>
 <div class="summaryGrid"><div class="summaryPanel invest"><div class="summaryPanelHead"><div><h3>📊 Activos</h3><div class="bigMoney">${euro(invested)}</div></div><div class="delta" style="color:#a855f7">Capital comprado</div></div>${Object.entries(byAsset).map(([n,v])=>`<div class="accountRow"><div><div class="accountName"><span class="accountBadge">📈</span>${n}</div><div class="accountKind">Compras acumuladas</div></div><div class="accountAmount">${euro(v)}</div><div class="accountPct">${invested?((v/invested)*100).toFixed(1):'0.0'}%</div></div>`).join('')||'<div class="empty">Todavía no hay inversiones.</div>'}</div>
 <div class="summaryPanel"><div class="summaryPanelHead"><div><h3>💶 Efectivo</h3><div class="bigMoney">${euro(cash)}</div></div><div class="delta">Cuentas de inversión</div></div>${investmentAccounts().map(a=>`<div class="accountRow"><div><div class="accountName"><span class="accountBadge">🏦</span>${a}</div><div class="accountKind">Efectivo disponible</div></div><div class="accountAmount">${euro(balance(a))}</div><div class="accountPct">${cash?((balance(a)/cash)*100).toFixed(1):'0.0'}%</div></div>`).join('')||'<div class="empty">No hay cuentas de inversión.</div>'}</div></div>
 <div class="section"><div class="sectionTitle"><h2>Compras de inversión</h2><button class="secondary" onclick="openOp()">＋ Nueva compra</button></div><div class="scroll"><table><thead><tr><th>Fecha</th><th>Activo</th><th>Cuenta</th><th>Importe</th><th></th></tr></thead><tbody>${ops.map(o=>`<tr><td>${o.date}</td><td>${o.asset||o.desc}</td><td>${o.origin}</td><td class="yellow">${euro(o.amount)}</td><td><button class="secondary" onclick="editOp('${o.id}')">Editar</button> <button class="danger" onclick="deleteOp('${o.id}')">×</button></td></tr>`).join('')||'<tr><td colspan="5">No hay compras de inversión.</td></tr>'}</tbody></table></div></div>
-<div class="notice ok">Las inversiones pertenecen a sus cuentas de inversión. La gráfica principal del patrimonio muestra solo cuentas normales; esta gráfica muestra exclusivamente la cartera de inversión y su efectivo.</div>
+<div class="notice ok">La evolución por activo se calcula con el capital comprado registrado día a día; cuando conectemos cotizaciones, esta misma gráfica podrá pasar a valor de mercado. Las inversiones pertenecen a sus cuentas de inversión. La gráfica principal del patrimonio muestra solo cuentas normales; esta gráfica muestra exclusivamente la cartera de inversión y su efectivo.</div>
 </div>`;
   drawInvestmentChart();
 }
@@ -340,7 +365,7 @@ function render(){
   const normalTotal=normal.reduce((s,a)=>s+balance(a),0),investTotal=invest.reduce((s,a)=>s+totalInvestmentAccount(a),0),cash=normalTotal+invest.reduce((s,a)=>s+balance(a),0),inv=totalInvestedCapital(),wealth=normalTotal+investTotal;
   document.getElementById('app').innerHTML=`<div class="dashboardHero">
 <div class="totalCard"><div class="label">Patrimonio total</div><div class="value">${euro(wealth)}</div><div class="small">Cuentas normales + cuentas de inversión · compras de inversión incluidas en su cuenta</div></div>
-<div class="chartCard"><div class="chartHead"><div><div class="chartTitle">Evolución del patrimonio</div><div class="chartSub">Todas las cuentas en una sola gráfica · cada línea representa una cuenta</div></div><div class="rangeBtns"><button class="rangeBtn active">TODO</button></div></div><div class="chartWrap"><canvas id="wealthChart"></canvas></div><div class="legend">${normal.map((a,i)=>`<span class="legendItem"><span class="legendDot" style="background:${chartPalette(i)}"></span>${a}</span>`).join('')}</div></div>
+<div class="chartCard"><div class="chartHead"><div><div class="chartTitle">Evolución del patrimonio</div><div class="chartSub">Todas las cuentas · cada línea representa una cuenta</div></div><div class="rangeBtns"><button class="rangeBtn active">TODO</button></div></div><div class="chartWrap"><canvas id="wealthChart"></canvas></div><div class="legend">${normal.map((a,i)=>`<span class="legendItem"><span class="legendDot" style="background:${chartPalette(i)}"></span>${a}</span>`).join('')}</div></div>
 <div class="statGrid"><div class="miniCard"><div class="label">Ingresos ${monthName(ym)}</div><div class="value green">${euro(t.i)}</div></div><div class="miniCard"><div class="label">Gastos ${monthName(ym)}</div><div class="value red">${euro(t.g)}</div></div><div class="miniCard"><div class="label">Resultado</div><div class="value ${t.r>=0?'green':'red'}">${euro(t.r)}</div></div><div class="miniCard"><div class="label">Inversiones del mes</div><div class="value yellow">${euro(t.inv)}</div></div></div>
 <div class="summaryGrid">
 <div class="summaryPanel normal"><div class="summaryPanelHead"><div><h3>💳 Cuentas normales</h3><div class="bigMoney">${euro(normalTotal)}</div></div><div class="delta">Disponible</div></div>${normal.length?normal.map(a=>`<div class="accountRow"><div><div class="accountName"><span class="accountBadge">🏦</span>${a}</div><div class="accountKind">Cuenta normal</div></div><div class="accountAmount">${euro(balance(a))}</div><div class="accountPct">${normalTotal?((balance(a)/normalTotal)*100).toFixed(1):'0.0'}%</div></div>`).join(''):'<div class="empty">No hay cuentas normales.</div>'}</div>
