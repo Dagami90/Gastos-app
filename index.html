@@ -171,7 +171,7 @@ db.budgets=db.budgets||{};
 db.recurring=db.recurring||[];
 db.market=db.market||{provider:'coingecko+twelvedata',apiKey:'',interval:15};
 db.typeConfig=db.typeConfig||baseDB().typeConfig;
-db.version=33;
+db.version=34;
 
 function save(){
   localStorage.setItem(KEY,JSON.stringify(db));
@@ -223,7 +223,16 @@ function investedCapitalByAccount(a){return db.ops.filter(o=>o.type==='Inversió
 function totalInvestmentAccount(a){return balance(a)+investedCapitalByAccount(a)}
 function totalInvestedCapital(){return investmentAccounts().reduce((s,a)=>s+investedCapitalByAccount(a),0)}
 
+
+function normalizeInvestmentDB(){
+  db.ops=Array.isArray(db.ops)?db.ops:[];
+  db.investments=Array.isArray(db.investments)?db.investments:[];
+  db.assetMeta=(db.assetMeta&&typeof db.assetMeta==='object')?db.assetMeta:{};
+  db.assetMarketHistory=Array.isArray(db.assetMarketHistory)?db.assetMarketHistory:[];
+}
+
 function ensureAssetMeta(){
+  normalizeInvestmentDB();
   db.assetMeta=db.assetMeta||{};
   let changed=false;
 
@@ -231,7 +240,7 @@ function ensureAssetMeta(){
   // This does not create movements, so it cannot alter account balances.
   if(Object.keys(db.assetMeta).length===0 && !(db.ops||[]).some(o=>o.type==='Inversión') &&
      Array.isArray(db.investments) && db.investments.length===0 &&
-     typeof BASE_INV!=='undefined' && BASE_INV.length){
+     typeof BASE_INV!=='undefined' && Array.isArray(BASE_INV) && BASE_INV.length){
     db.investments=BASE_INV.map(p=>({...p}));
     changed=true;
   }
@@ -281,6 +290,7 @@ function ensureAssetMeta(){
   if(changed)localStorage.setItem(KEY,JSON.stringify(db));
 }
 function investmentAssets(){
+  normalizeInvestmentDB();
   ensureAssetMeta();
   const names=new Set(Object.keys(db.assetMeta||{}));
   investmentOps().forEach(o=>names.add((o.asset||o.desc||'Inversión').trim()||'Inversión'));
@@ -288,6 +298,7 @@ function investmentAssets(){
 }
 
 function investmentQuantityByAsset(){
+  normalizeInvestmentDB();
   ensureAssetMeta();
   const out={};
   Object.keys(db.assetMeta||{}).forEach(n=>{
@@ -302,6 +313,7 @@ function investmentQuantityByAsset(){
   return out;
 }
 function investmentCostByAsset(){
+  normalizeInvestmentDB();
   ensureAssetMeta();
   const out={};
   Object.keys(db.assetMeta||{}).forEach(n=>{
@@ -320,6 +332,7 @@ function investmentAveragePriceByAsset(){
   return out;
 }
 function currentMarketValue(n){
+  normalizeInvestmentDB();
   const v=db.assetMeta?.[n]?.marketValue;
   return v===null||v===undefined||v===''?null:Number(v);
 }
@@ -359,18 +372,21 @@ function addInvestmentAsset(){
   showView('inversiones');
 }
 function removeInvestmentAsset(n){
-  ensureAssetMeta();
-  const ops=investmentOps().filter(o=>(o.asset||o.desc||'').trim()===n);
-  const msg=ops.length
-    ? 'Este activo tiene '+ops.length+' compra(s) registradas. Si lo eliminas, también se eliminarán esas compras y el importe dejará de formar parte de la cuenta. ¿Continuar?'
+  normalizeInvestmentDB();
+  const ops=(db.ops||[]).filter(o=>o.type==='Inversión' && (o.asset||o.desc||'').trim()===n);
+  const fixed=(db.investments||[]).filter(p=>(p.name||p.title||p.asset||'').trim()===n);
+  const msg=ops.length||fixed.length
+    ? 'Este activo tiene '+ops.length+' compra(s) registrada(s)'+(fixed.length?' y una posición inicial':'')+'. Se eliminarán los datos de esta posición. ¿Continuar?'
     : '¿Eliminar el activo "'+n+'"?';
   if(!confirm(msg))return;
-  if(ops.length)db.ops=(db.ops||[]).filter(o=>!ops.includes(o));
-  if(Array.isArray(db.investments))db.investments=db.investments.filter(p=>(p.name||p.title||p.asset||'').trim()!==n);
+  db.ops=(db.ops||[]).filter(o=>!(o.type==='Inversión'&&(o.asset||o.desc||'').trim()===n));
+  db.investments=(db.investments||[]).filter(p=>(p.name||p.title||p.asset||'').trim()!==n);
   delete db.assetMeta[n];
   (db.assetMarketHistory||[]).forEach(h=>{if(h.assets)delete h.assets[n]});
-  save();showView('inversiones');
+  save();
+  showView('inversiones');
 }
+
 function toggleInvestmentAsset(n){
   ensureAssetMeta();
   db.assetMeta[n]=db.assetMeta[n]||{enabled:true};
@@ -535,7 +551,7 @@ function showInvestments(){
   const pnl=known.reduce((sum,n)=>sum+(currentMarketValue(n)-Number(costs[n]||0)),0);
   const pnlPct=knownCost?pnl/knownCost*100:0;
   const portfolio=marketTotal+cash;
-  const previousSnapshot=(db.assetMarketHistory||[]).slice(-2,-1)[0];
+  const previousSnapshot=(Array.isArray(db.assetMarketHistory)?db.assetMarketHistory:[]).slice(-2,-1)[0];
   const previousTotal=previousSnapshot?Object.values(previousSnapshot.assets||{}).reduce((a,b)=>a+Number(b||0),0)+cash:null;
   const dayPnl=previousTotal===null?null:portfolio-previousTotal;
   const colorFor=(i)=>chartPalette(i);
@@ -948,6 +964,7 @@ function autoRestoreIfEmpty(){
   const sc=document.createElement("script");sc.src=c.url+"?action=get&token="+encodeURIComponent(c.token)+"&callback="+cb;document.body.appendChild(sc);
 }
 setTimeout(autoRestoreIfEmpty,700);
+normalizeInvestmentDB();
 ensureAssetMeta();
 render();
 </script>
