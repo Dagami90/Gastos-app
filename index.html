@@ -96,35 +96,61 @@ async function restoreDriveSilently(force=false){
  const url=cfg.driveUrl||DRIVE_URL, token=cfg.driveToken||DRIVE_TOKEN;
  if(!url||!token)return false;
  driveStatus='restoring';updateSyncBadge();
+
+ // First try a normal GET. Apps Script may expose the JSON response directly.
+ try{
+   const r=await fetch(url+'?action=get&token='+encodeURIComponent(token)+'&_='+Date.now(),{method:'GET',cache:'no-store'});
+   if(r.ok){
+     const text=await r.text();
+     const res=JSON.parse(text);
+     if(res&&res.ok===true&&res.data) return applyDriveData(res.data,url,token,force,res.savedAt);
+   }
+ }catch(e){ /* CORS/redirect: use JSONP fallback below. */ }
+
+ // JSONP fallback. Use one fixed, global callback and a script tag.
  return await new Promise(resolve=>{
-   const cb='gastosRestore_'+Date.now()+'_'+Math.random().toString(36).slice(2);
+   const cb='gastosDriveCallback';
    let done=false;
-   const finish=v=>{if(done)return;done=true;try{delete window[cb]}catch(e){};try{sc.remove()}catch(e){};resolve(v)};
+   const sc=document.createElement('script');
+   const cleanup=v=>{
+     if(done)return; done=true;
+     try{delete window[cb]}catch(e){window[cb]=undefined}
+     try{sc.remove()}catch(e){}
+     clearTimeout(timer); resolve(v);
+   };
    window[cb]=res=>{
      try{
-       if(!res||res.ok!==true||!res.data)return finish(false);
-       const x=res.data;
-       if(!Array.isArray(x.accounts)||!Array.isArray(x.ops))return finish(false);
-       // Do not replace local data unless explicitly requested, or there is no local data.
-       if(hasRealData(db) && !force)return finish(false);
-       db=Object.assign(structuredClone(defaults),x);
-       db.investments=Array.isArray(x.investments)?x.investments:[];
-       db.categories=Array.isArray(x.categories)?x.categories:structuredClone(defaults.categories);
-       db.concepts=Array.isArray(x.concepts)?x.concepts:[];
-       db.settings=Object.assign({},structuredClone(defaults.settings),x.settings||{},{driveUrl:url,driveToken:token,autoSync:true});
-       localStorage.setItem(KEY,JSON.stringify(db));
-       driveStatus='restored';updateSyncBadge();finish(true);render();toast('Datos recuperados de Drive');
-     }catch(e){finish(false)}
+       if(!res||res.ok!==true||!res.data) return cleanup(false);
+       cleanup(applyDriveData(res.data,url,token,force,res.savedAt));
+     }catch(e){cleanup(false)}
    };
-   const sc=document.createElement('script');
    sc.async=true;
+   sc.onerror=()=>{driveStatus='error';updateSyncBadge();cleanup(false)};
    sc.src=url+'?action=get&token='+encodeURIComponent(token)+'&callback='+cb+'&_='+Date.now();
-   sc.onerror=()=>{driveStatus='error';updateSyncBadge();finish(false)};
    document.body.appendChild(sc);
-   setTimeout(()=>{if(!done){driveStatus='error';updateSyncBadge();finish(false)}},15000);
+   const timer=setTimeout(()=>{driveStatus='error';updateSyncBadge();cleanup(false)},20000);
  });
 }
 
+function applyDriveData(x,url,token,force,savedAt){
+ try{
+   if(!Array.isArray(x.accounts)||!Array.isArray(x.ops))return false;
+   if(hasRealData(db)&&!force)return false;
+   // Normalize old account schema without discarding any records.
+   const nx=structuredClone(defaults);
+   nx.version=x.version||1;
+   nx.accounts=(x.accounts||[]).map(a=>Object.assign({},a,{kind:(a.kind==='normal'||a.kind==='personal')?'personal':'investment'}));
+   nx.categories=Array.isArray(x.categories)?x.categories:structuredClone(defaults.categories);
+   nx.concepts=Array.isArray(x.concepts)?x.concepts:[];
+   nx.ops=Array.isArray(x.ops)?x.ops:[];
+   nx.investments=Array.isArray(x.investments)?x.investments:[];
+   nx.settings=Object.assign({},structuredClone(defaults.settings),x.settings||{},{driveUrl:url,driveToken:token,autoSync:true});
+   db=nx;
+   localStorage.setItem(KEY,JSON.stringify(db));
+   driveStatus='restored';updateSyncBadge();render();toast('Datos recuperados de Drive'+(savedAt?' · '+new Date(savedAt).toLocaleString('es-ES'):''));
+   return true;
+ }catch(e){driveStatus='error';updateSyncBadge();return false}
+}
 function toast(t){const x=document.getElementById('toast');x.textContent=t;x.classList.add('show');setTimeout(()=>x.classList.remove('show'),2200)}
 function euro(n){return Number(n||0).toLocaleString('es-ES',{style:'currency',currency:'EUR'})}
 function esc(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
