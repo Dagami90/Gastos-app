@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="theme-color" content="#111827"><link rel="manifest" href="manifest.json"><title>GastosApp · V26 · Cuentas + inversiones · persistencia</title>
+<meta name="theme-color" content="#111827"><link rel="manifest" href="manifest.json"><title>GastosApp · V29 · Cuentas + inversiones · patrimonio real</title>
 <style>
 :root{--bg:#f5f7fb;--card:#fff;--ink:#111827;--muted:#6b7280;--line:#e5e7eb;--accent:#111827;--green:#15803d;--red:#b91c1c;--yellow:#a16207;--blue:#1d4ed8}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);font-family:Inter,system-ui,-apple-system,Segoe UI,sans-serif;color:var(--ink)}
@@ -136,7 +136,7 @@ const BASE_INV=[
 function baseDB(){
   return {
     accounts:[],cats:[],concepts:[],opening:{},ops:[],investments:[],prices:{},
-    categoryMeta:{},conceptMeta:{},accountMeta:{},
+    categoryMeta:{},conceptMeta:{},accountMeta:{},assetMeta:{},assetMarketHistory:[],
     accountHistory:[],investmentHistory:[],netWorthHistory:[],budgets:{},recurring:[],
     market:{provider:'coingecko+twelvedata',apiKey:'',interval:15},
     typeConfig:{
@@ -164,7 +164,7 @@ db.investments=db.investments||[];
 db.prices=db.prices||{};
 db.categoryMeta=db.categoryMeta||{};
 db.conceptMeta=db.conceptMeta||{};
-db.accountMeta=db.accountMeta||{}; db.investmentHistory=db.investmentHistory||[];
+db.accountMeta=db.accountMeta||{}; db.investmentHistory=db.investmentHistory||[]; db.assetMeta=db.assetMeta||{}; db.assetMarketHistory=db.assetMarketHistory||[];
 db.accountHistory=db.accountHistory||[];
 db.netWorthHistory=db.netWorthHistory||[];
 db.budgets=db.budgets||{};
@@ -222,6 +222,84 @@ function investmentAccounts(){return db.accounts.filter(a=>accountKind(a)==='inv
 function investedCapitalByAccount(a){return db.ops.filter(o=>o.type==='Inversión'&&o.origin===a).reduce((s,o)=>s+(Number(o.amount)||0),0)}
 function totalInvestmentAccount(a){return balance(a)+investedCapitalByAccount(a)}
 function totalInvestedCapital(){return investmentAccounts().reduce((s,a)=>s+investedCapitalByAccount(a),0)}
+
+function ensureAssetMeta(){
+  db.assetMeta=db.assetMeta||{};
+  let changed=false;
+  (db.ops||[]).filter(o=>o.type==='Inversión').forEach(o=>{
+    const n=(o.asset||o.desc||'Inversión').trim();
+    if(n && !db.assetMeta[n]){db.assetMeta[n]={enabled:true,marketValue:null};changed=true}
+  });
+  if(changed)localStorage.setItem(KEY,JSON.stringify(db));
+}
+function investmentAssets(){
+  ensureAssetMeta();
+  return Object.keys(db.assetMeta||{}).filter(n=>db.assetMeta[n]?.enabled!==false);
+}
+function investmentCostByAsset(){
+  const out={};
+  investmentOps().forEach(o=>{
+    const n=(o.asset||o.desc||'Inversión').trim()||'Inversión';
+    out[n]=(out[n]||0)+(Number(o.amount)||0);
+  });
+  return out;
+}
+function currentMarketValue(n){
+  const v=db.assetMeta?.[n]?.marketValue;
+  return v===null||v===undefined||v===''?null:Number(v);
+}
+function recordAssetMarketSnapshot(){
+  ensureAssetMeta();
+  const day=new Date().toISOString().slice(0,10);
+  db.assetMarketHistory=db.assetMarketHistory||[];
+  const row={date:day,assets:{}};
+  investmentAssets().forEach(n=>{
+    const v=currentMarketValue(n);
+    if(v!==null && Number.isFinite(v)) row.assets[n]=v;
+  });
+  const i=db.assetMarketHistory.findIndex(x=>x.date===day);
+  if(i>=0) db.assetMarketHistory[i]=row;
+  else db.assetMarketHistory.push(row);
+  db.assetMarketHistory.sort((a,b)=>a.date.localeCompare(b.date));
+}
+function saveMarketValue(n,v){
+  ensureAssetMeta();
+  const value=Number(v);
+  if(!Number.isFinite(value)||value<0)return alert('Introduce un valor de mercado válido.');
+  db.assetMeta[n]=db.assetMeta[n]||{enabled:true};
+  db.assetMeta[n].marketValue=value;
+  recordAssetMarketSnapshot();
+  save();
+  showView('inversiones');
+}
+function addInvestmentAsset(){
+  ensureAssetMeta();
+  const n=prompt('Nombre del activo (ETF, acción o cripto)');
+  if(!n)return;
+  const v=n.trim();
+  if(!v)return;
+  if(db.assetMeta[v] && db.assetMeta[v].enabled!==false)return alert('Ese activo ya existe.');
+  db.assetMeta[v]={enabled:true,marketValue:null};
+  save();
+  showView('inversiones');
+}
+function removeInvestmentAsset(n){
+  ensureAssetMeta();
+  const hasOps=investmentOps().some(o=>(o.asset||o.desc||'').trim()===n);
+  if(hasOps)return alert('No se puede eliminar un activo que tiene compras registradas. Puedes desactivarlo.');
+  if(confirm('¿Eliminar el activo "'+n+'"?')){
+    delete db.assetMeta[n];
+    (db.assetMarketHistory||[]).forEach(h=>{if(h.assets)delete h.assets[n]});
+    save(); showView('inversiones');
+  }
+}
+function toggleInvestmentAsset(n){
+  ensureAssetMeta();
+  db.assetMeta[n]=db.assetMeta[n]||{enabled:true};
+  db.assetMeta[n].enabled=db.assetMeta[n].enabled===false;
+  save(); showView('inversiones');
+}
+
 function investmentOps(){return db.ops.filter(o=>o.type==='Inversión'&&accountKind(o.origin)==='investment').sort((a,b)=>b.date.localeCompare(a.date))}
 function recordAccountSnapshot(){
   ensureAccountMeta();
@@ -310,9 +388,23 @@ function investmentHistorySnapshot(){
   localStorage.setItem(KEY,JSON.stringify(db));
 }
 function investmentChartSeries(){
-  const history=investmentDailySeries().slice(-400);
-  const names=[];
-  history.forEach(h=>Object.keys(h.assets||{}).forEach(n=>{if(!names.includes(n))names.push(n)}));
+  ensureAssetMeta();
+  const dates=[];
+  (db.ops||[]).forEach(o=>{if(o.date)dates.push(o.date)});
+  (db.assetMarketHistory||[]).forEach(h=>{if(h.date)dates.push(h.date)});
+  const uniq=[...new Set(dates)].sort();
+  const end=new Date().toISOString().slice(0,10);
+  const allDates=dateRange(uniq[0]||end,end);
+  const names=investmentAssets();
+  const history=allDates.map(day=>{
+    const snap=(db.assetMarketHistory||[]).filter(h=>h.date<=day).sort((a,b)=>a.date.localeCompare(b.date)).at(-1);
+    const assets={};
+    names.forEach(n=>{
+      const v=snap?.assets?.[n];
+      assets[n]=v===undefined?0:Number(v)||0;
+    });
+    return {date:day,assets,cash:investmentAccounts().reduce((s,a)=>s+balance(a),0)};
+  });
   return {history,names};
 }
 function drawSeriesCanvas(canvas,history,names,includeCash){
@@ -338,34 +430,59 @@ function drawInvestmentChart(){
 }
 function showInvestments(){
   ensureAccountMeta();
-  investmentHistorySnapshot();
-  const ops=investmentOps();
-  const byAsset={};
-  for(const o of ops){
-    const name=(o.asset||o.desc||'Inversión').trim()||'Inversión';
-    byAsset[name]=(byAsset[name]||0)+(Number(o.amount)||0);
-  }
-  const cash=investmentAccounts().reduce((s,a)=>s+balance(a),0);
-  const invested=Object.values(byAsset).reduce((s,v)=>s+v,0);
-  const total=invested+cash;
+  ensureAssetMeta();
+  const costs=investmentCostByAsset();
+  const assets=investmentAssets();
+  const cash=investmentAccounts().reduce((sum,a)=>sum+balance(a),0);
+  const marketTotal=assets.reduce((s,n)=>s+(currentMarketValue(n)||0),0);
+  const costTotal=Object.values(costs).reduce((s,v)=>s+v,0);
+  const known=assets.filter(n=>currentMarketValue(n)!==null);
+  const totalReal=marketTotal+cash;
+  const pnl=known.reduce((s,n)=>s+(currentMarketValue(n)-Number(costs[n]||0)),0);
+  const pnlPct=known.length ? (known.reduce((s,n)=>s+Number(costs[n]||0),0)?pnl/known.reduce((s,n)=>s+Number(costs[n]||0),0)*100:0) : null;
   document.getElementById('app').innerHTML=`<div class="dashboardHero">
-<div class="sectionTitle"><div><h2 style="font-size:24px;margin:0">Inversiones</h2><div class="small">Seguimiento de compras realizadas desde tus cuentas de inversión</div></div></div>
-<div class="statGrid"><div class="miniCard"><div class="label">Cartera contabilizada</div><div class="value">${euro(total)}</div></div><div class="miniCard"><div class="label">Capital invertido</div><div class="value yellow">${euro(invested)}</div></div><div class="miniCard"><div class="label">Efectivo disponible</div><div class="value blue">${euro(cash)}</div></div><div class="miniCard"><div class="label">Activos</div><div class="value">${Object.keys(byAsset).length}</div></div></div>
-<div class="chartCard"><div class="chartHead"><div><div class="chartTitle">Evolución de la cartera de inversiones</div><div class="chartSub">Una línea por acción, ETF o cripto · línea discontinua = efectivo</div></div></div><div class="chartWrap"><canvas id="investmentChart"></canvas></div><div class="legend">${Object.keys(byAsset).map((n,i)=>`<span class="legendItem"><span class="legendDot" style="background:${['#3b82f6','#a855f7','#22c55e','#f59e0b','#ef4444','#06b6d4','#eab308','#ec4899','#14b8a6','#8b5cf6'][i%10]}"></span>${n}</span>`).join('')}<span class="legendItem"><span style="display:inline-block;width:14px;border-top:2px dashed #cbd5e1"></span>Efectivo</span></div></div>
-<div class="summaryGrid"><div class="summaryPanel invest"><div class="summaryPanelHead"><div><h3>📊 Activos</h3><div class="bigMoney">${euro(invested)}</div></div><div class="delta" style="color:#a855f7">Capital comprado</div></div>${Object.entries(byAsset).map(([n,v])=>`<div class="accountRow"><div><div class="accountName"><span class="accountBadge">📈</span>${n}</div><div class="accountKind">Compras acumuladas</div></div><div class="accountAmount">${euro(v)}</div><div class="accountPct">${invested?((v/invested)*100).toFixed(1):'0.0'}%</div></div>`).join('')||'<div class="empty">Todavía no hay inversiones.</div>'}</div>
-<div class="summaryPanel"><div class="summaryPanelHead"><div><h3>💶 Efectivo</h3><div class="bigMoney">${euro(cash)}</div></div><div class="delta">Cuentas de inversión</div></div>${investmentAccounts().map(a=>`<div class="accountRow"><div><div class="accountName"><span class="accountBadge">🏦</span>${a}</div><div class="accountKind">Efectivo disponible</div></div><div class="accountAmount">${euro(balance(a))}</div><div class="accountPct">${cash?((balance(a)/cash)*100).toFixed(1):'0.0'}%</div></div>`).join('')||'<div class="empty">No hay cuentas de inversión.</div>'}</div></div>
-<div class="section"><div class="sectionTitle"><h2>Compras de inversión</h2><button class="secondary" onclick="openOp()">＋ Nueva compra</button></div><div class="scroll"><table><thead><tr><th>Fecha</th><th>Activo</th><th>Cuenta</th><th>Importe</th><th></th></tr></thead><tbody>${ops.map(o=>`<tr><td>${o.date}</td><td>${o.asset||o.desc}</td><td>${o.origin}</td><td class="yellow">${euro(o.amount)}</td><td><button class="secondary" onclick="editOp('${o.id}')">Editar</button> <button class="danger" onclick="deleteOp('${o.id}')">×</button></td></tr>`).join('')||'<tr><td colspan="5">No hay compras de inversión.</td></tr>'}</tbody></table></div></div>
-<div class="notice ok">La evolución por activo se calcula con el capital comprado registrado día a día; cuando conectemos cotizaciones, esta misma gráfica podrá pasar a valor de mercado. Las inversiones pertenecen a sus cuentas de inversión. La gráfica principal del patrimonio muestra solo cuentas normales; esta gráfica muestra exclusivamente la cartera de inversión y su efectivo.</div>
+<div class="sectionTitle"><div><h2 style="font-size:24px;margin:0">Inversiones</h2><div class="small">Activos que mantienes, valor real de mercado y evolución de la cartera</div></div><button class="primary" onclick="addInvestmentAsset()">＋ Añadir activo</button></div>
+
+<div class="statGrid">
+<div class="miniCard"><div class="label">Patrimonio de inversión</div><div class="value">${euro(totalReal)}</div></div>
+<div class="miniCard"><div class="label">Valor de mercado</div><div class="value blue">${euro(marketTotal)}</div></div>
+<div class="miniCard"><div class="label">Efectivo</div><div class="value">${euro(cash)}</div></div>
+<div class="miniCard"><div class="label">P/L conocido</div><div class="value ${pnl>=0?'green':'red'}">${known.length?euro(pnl)+' ('+(pnlPct||0).toFixed(1)+'%)':'—'}</div></div>
+</div>
+
+<div class="chartCard"><div class="chartHead"><div><div class="chartTitle">Evolución real de las inversiones</div><div class="chartSub">Una línea por activo según el valor de mercado introducido · línea discontinua = efectivo</div></div></div><div class="chartWrap"><canvas id="investmentChart"></canvas></div><div class="legend">${assets.map((n,i)=>`<span class="legendItem"><span class="legendDot" style="background:${chartPalette(i)}"></span>${n}</span>`).join('')}<span class="legendItem"><span style="display:inline-block;width:14px;border-top:2px dashed #cbd5e1"></span>Efectivo</span></div></div>
+
+<div class="summaryGrid">
+<div class="summaryPanel invest"><div class="summaryPanelHead"><div><h3>📊 Activos</h3><div class="bigMoney">${euro(marketTotal)}</div></div><div class="delta" style="color:#a855f7">Valor de mercado actual</div></div>
+${assets.map((n,i)=>{const mv=currentMarketValue(n),cost=Number(costs[n]||0),gain=mv===null?null:mv-cost;return `<div class="accountRow">
+<div><div class="accountName"><span class="accountBadge">📈</span>${n}</div><div class="accountKind">Capital comprado: ${euro(cost)} · ${mv===null?'valor no introducido':'valor de mercado actual'}</div></div>
+<div style="text-align:right"><div class="accountAmount">${mv===null?'—':euro(mv)}</div><div class="${gain===null?'accountPct':gain>=0?'accountPct green':'accountPct red'}">${gain===null?'':(gain>=0?'+':'')+euro(gain)}</div></div>
+<div><input type="number" min="0" step="0.01" placeholder="Valor €" value="${mv===null?'':mv}" onchange="saveMarketValue('${escQ(n)}',this.value)" style="width:120px;padding:9px"></div>
+</div>`}).join('')||'<div class="empty">Todavía no hay activos. Añade uno o registra una compra de inversión.</div>'}
+</div>
+
+<div class="summaryPanel"><div class="summaryPanelHead"><div><h3>💶 Efectivo</h3><div class="bigMoney">${euro(cash)}</div></div><div class="delta">Cuentas de inversión</div></div>
+${investmentAccounts().map(a=>`<div class="accountRow"><div><div class="accountName"><span class="accountBadge">🏦</span>${a}</div><div class="accountKind">Efectivo disponible</div></div><div class="accountAmount">${euro(balance(a))}</div><div class="accountPct">${cash?((balance(a)/cash)*100).toFixed(1):'0.0'}%</div></div>`).join('')||'<div class="empty">No hay cuentas de inversión.</div>'}</div>
+</div>
+
+<div class="section"><div class="sectionTitle"><h2>Activos fijos</h2><button class="secondary" onclick="addInvestmentAsset()">＋ Añadir activo</button></div>
+<div class="ops">${assets.map(n=>`<div class="account"><div><b>${n}</b><div class="small">Coste ${euro(costs[n]||0)} · ${currentMarketValue(n)===null?'sin valor de mercado':'mercado '+euro(currentMarketValue(n))}</div></div><div><button class="secondary" onclick="toggleInvestmentAsset('${escQ(n)}')">${db.assetMeta[n]?.enabled===false?'Activar':'Desactivar'}</button> <button class="danger" onclick="removeInvestmentAsset('${escQ(n)}')">×</button></div></div>`).join('')||'<div class="empty">No hay activos.</div>'}</div></div>
+
+<div class="section"><div class="sectionTitle"><h2>Compras de inversión</h2><button class="secondary" onclick="openOp()">＋ Nueva compra</button></div><div class="scroll"><table><thead><tr><th>Fecha</th><th>Activo</th><th>Cuenta</th><th>Importe</th><th></th></tr></thead><tbody>${investmentOps().map(o=>`<tr><td>${o.date}</td><td>${o.asset||o.desc}</td><td>${o.origin}</td><td class="yellow">${euro(o.amount)}</td><td><button class="secondary" onclick="editOp('${o.id}')">Editar</button> <button class="danger" onclick="deleteOp('${o.id}')">×</button></td></tr>`).join('')||'<tr><td colspan="5">No hay compras de inversión.</td></tr>'}</tbody></table></div></div>
+
+<div class="notice ok">Introduce el valor de mercado actual de cada activo. La app guarda una fotografía diaria de esos valores para que la gráfica muestre cómo evoluciona realmente cada ETF, acción o cripto. El P/L se calcula frente al capital comprado registrado.</div>
 </div>`;
+  recordAssetMarketSnapshot();
   drawInvestmentChart();
 }
+
 function render(){
   ensureAccountMeta();
   const ym=new Date().toISOString().slice(0,7),t=totals(ym),normal=normalAccounts(),invest=investmentAccounts();
   const normalTotal=normal.reduce((s,a)=>s+balance(a),0),investTotal=invest.reduce((s,a)=>s+totalInvestmentAccount(a),0),cash=normalTotal+invest.reduce((s,a)=>s+balance(a),0),inv=totalInvestedCapital(),wealth=normalTotal+investTotal;
   document.getElementById('app').innerHTML=`<div class="dashboardHero">
 <div class="totalCard"><div class="label">Patrimonio total</div><div class="value">${euro(wealth)}</div><div class="small">Cuentas normales + cuentas de inversión · compras de inversión incluidas en su cuenta</div></div>
-<div class="chartCard"><div class="chartHead"><div><div class="chartTitle">Evolución del patrimonio</div><div class="chartSub">Todas las cuentas · cada línea representa una cuenta</div></div><div class="rangeBtns"><button class="rangeBtn active">TODO</button></div></div><div class="chartWrap"><canvas id="wealthChart"></canvas></div><div class="legend">${normal.map((a,i)=>`<span class="legendItem"><span class="legendDot" style="background:${chartPalette(i)}"></span>${a}</span>`).join('')}</div></div>
+<div class="chartCard"><div class="chartHead"><div><div class="chartTitle">Evolución del patrimonio</div><div class="chartSub">Todas las cuentas · cada línea representa una cuenta</div></div><div class="rangeBtns"><button class="rangeBtn active">TODO</button></div></div><div class="chartWrap"><canvas id="wealthChart"></canvas></div><div class="legend">${db.accounts.map((a,i)=>`<span class="legendItem"><span class="legendDot" style="background:${chartPalette(i)}"></span>${a}</span>`).join('')}</div></div>
 <div class="statGrid"><div class="miniCard"><div class="label">Ingresos ${monthName(ym)}</div><div class="value green">${euro(t.i)}</div></div><div class="miniCard"><div class="label">Gastos ${monthName(ym)}</div><div class="value red">${euro(t.g)}</div></div><div class="miniCard"><div class="label">Resultado</div><div class="value ${t.r>=0?'green':'red'}">${euro(t.r)}</div></div><div class="miniCard"><div class="label">Inversiones del mes</div><div class="value yellow">${euro(t.inv)}</div></div></div>
 <div class="summaryGrid">
 <div class="summaryPanel normal"><div class="summaryPanelHead"><div><h3>💳 Cuentas normales</h3><div class="bigMoney">${euro(normalTotal)}</div></div><div class="delta">Disponible</div></div>${normal.length?normal.map(a=>`<div class="accountRow"><div><div class="accountName"><span class="accountBadge">🏦</span>${a}</div><div class="accountKind">Cuenta normal</div></div><div class="accountAmount">${euro(balance(a))}</div><div class="accountPct">${normalTotal?((balance(a)/normalTotal)*100).toFixed(1):'0.0'}%</div></div>`).join(''):'<div class="empty">No hay cuentas normales.</div>'}</div>
@@ -434,9 +551,50 @@ function manageRecurring(){
   alert('Recurrente añadido.');
 }
 
-function openSettings(){document.getElementById('settings').classList.add('show');catalogRefresh();loadSyncFields();document.getElementById('settingsAccounts').innerHTML=db.accounts.map((a,i)=>`<div style="display:grid;grid-template-columns:1fr 140px 150px;gap:8px;margin:7px 0;align-items:center"><input value="${a}" onchange="renameAccount(${i},this.value)"><input type="number" step="0.01" value="${db.opening[a]||0}" onchange="setOpening('${a.replaceAll("'","\\'")}',this.value)"><select onchange="setAccountKind('${a.replaceAll("'","\\'")}',this.value)"><option value="normal" ${accountKind(a)==='normal'?'selected':''}>Cuenta normal</option><option value="investment" ${accountKind(a)==='investment'?'selected':''}>Cuenta inversión</option></select></div>`).join('')}
-function closeSettings(){document.getElementById('settings').classList.remove('show');render()}function renameAccount(i,v){const old=db.accounts[i];if(!v||db.accounts.includes(v)&&v!==old)return;db.accounts[i]=v;ensureAccountMeta();db.accountMeta[v]=db.accountMeta[old]||{kind:'normal'};delete db.accountMeta[old];db.opening[v]=db.opening[old]||0;delete db.opening[old];db.ops.forEach(o=>{if(o.origin===old)o.origin=v;if(o.dest===old)o.dest=v});db.investments.forEach(x=>{if(x.account===old)x.account=v});save()}
-function setAccountKind(a,v){ensureAccountMeta();db.accountMeta[a]={kind:v==='investment'?'investment':'normal'};save();openSettings()} function setOpening(a,v){db.opening[a]=Number(v)||0;save()}function addAccount(){const a=prompt('Nombre de la cuenta');if(a&&!db.accounts.includes(a)){db.accounts.push(a);db.opening[a]=0;db.accountMeta=db.accountMeta||{};db.accountMeta[a]={kind:'normal'};save();openSettings()}}function addConcept(){const c=prompt('Nombre del concepto');if(c&&c.trim()&&!db.concepts.includes(c.trim())){db.concepts.push(c.trim());db.concepts.sort((a,b)=>a.localeCompare(b,'es'));save();openSettings()}}function addCategory(){const c=prompt('Nombre de la categoría');if(c&&!db.cats.includes(c)){db.cats.push(c);save();openSettings()}}
+function accountHasReferences(a){return (db.ops||[]).some(o=>o.origin===a||o.dest===a)||(db.investments||[]).some(x=>x.account===a)}
+function deleteAccount(a){
+  if(accountHasReferences(a))return alert('No se puede eliminar esta cuenta porque tiene operaciones asociadas. Puedes cambiar su tipo o renombrarla.');
+  if(Number(db.opening[a]||0)!==0)return alert('No se puede eliminar una cuenta con saldo inicial distinto de 0. Pon el saldo a 0 primero.');
+  if(!confirm('¿Eliminar la cuenta "'+a+'"?'))return;
+  db.accounts=db.accounts.filter(x=>x!==a); delete db.opening[a]; delete db.accountMeta[a]; save(); openSettings();
+}
+function openSettings(){
+  document.getElementById('settings').classList.add('show');catalogRefresh();loadSyncFields();
+  document.getElementById('settingsAccounts').innerHTML=db.accounts.map((a,i)=>`<div style="display:grid;grid-template-columns:minmax(180px,1fr) 125px 145px 34px;gap:8px;margin:7px 0;align-items:center">
+<input value="${a}" onchange="renameAccount(${i},this.value)">
+<input type="number" step="0.01" value="${db.opening[a]||0}" onchange="setOpening('${a.replaceAll("'","\\\\'")}',this.value)">
+<select onchange="setAccountKind('${a.replaceAll("'","\\\\'")}',this.value)"><option value="normal" ${accountKind(a)==='normal'?'selected':''}>Cuenta normal</option><option value="investment" ${accountKind(a)==='investment'?'selected':''}>Cuenta inversión</option></select>
+<button class="danger" title="Eliminar cuenta" onclick="deleteAccount('${a.replaceAll("'","\\\\'")}')">×</button></div>`).join('') || '<div class="empty">No hay cuentas.</div>';
+}
+function closeSettings(){document.getElementById('settings').classList.remove('show');render()}
+function renameAccount(i,v){
+  const old=db.accounts[i], n=String(v||'').trim();
+  if(!n||n===old)return;
+  if(db.accounts.includes(n))return alert('Ese nombre ya existe.');
+  db.accounts[i]=n; ensureAccountMeta();
+  db.accountMeta[n]=db.accountMeta[old]||{kind:'normal'}; delete db.accountMeta[old];
+  db.opening[n]=db.opening[old]||0; delete db.opening[old];
+  (db.ops||[]).forEach(o=>{if(o.origin===old)o.origin=n;if(o.dest===old)o.dest=n});
+  (db.investments||[]).forEach(x=>{if(x.account===old)x.account=n});
+  save(); openSettings();
+}
+function setAccountKind(a,v){
+  ensureAccountMeta();
+  const next=v==='investment'?'investment':'normal';
+  if(!db.accounts.includes(a))return;
+  db.accountMeta[a]={...(db.accountMeta[a]||{}),kind:next};
+  save();
+  openSettings();
+}
+function setOpening(a,v){db.opening[a]=Number(v)||0;save()}
+function addAccount(){
+  const a=prompt('Nombre de la cuenta');if(!a)return;
+  const n=a.trim();if(!n)return;
+  if(db.accounts.includes(n))return alert('Esa cuenta ya existe.');
+  db.accounts.push(n);db.opening[n]=0;db.accountMeta=db.accountMeta||{};db.accountMeta[n]={kind:'normal'};save();openSettings();
+}
+function addConcept(){const c=prompt('Nombre del concepto');if(c&&c.trim()&&!db.concepts.includes(c.trim())){db.concepts.push(c.trim());db.conceptMeta= db.conceptMeta||{};db.conceptMeta[c.trim()]={enabled:true};save();openSettings()}}
+function addCategory(){const c=prompt('Nombre de la categoría');if(c&&c.trim()&&!db.cats.includes(c.trim())){const n=c.trim();db.cats.push(n);db.categoryMeta=db.categoryMeta||{};db.categoryMeta[n]={enabled:true};save();openSettings()}}
 function restoreBaseData(){
   if(!confirm('Esto sustituirá todos los datos actuales por una base completamente vacía. ¿Continuar?'))return;
   db=baseDB(); window.db=db; save(); closeSettings(); render();
@@ -457,7 +615,7 @@ function importBackup(ev){
       const p=JSON.parse(r.result), d=p.data||p;
       if(!d.accounts||!d.ops) throw new Error("Formato no válido");
       if(!confirm("Esto sustituirá los datos actuales por la copia. ¿Continuar?")) return;
-      db=d; window.db=db; db.version=13; db.investments=[]; db.prices={}; db.investmentModelV1=true; save(); render(); closeSettings();
+      db=d; window.db=db; db.version=29; db.investments=db.investments||[]; db.prices=db.prices||{}; db.assetMeta=db.assetMeta||{}; db.assetMarketHistory=db.assetMarketHistory||[]; save(); render(); closeSettings();
       alert("Copia restaurada correctamente.");
     }catch(e){alert("No se pudo importar la copia: "+e.message)}
   };
@@ -492,7 +650,7 @@ function restoreFromDrive(){
       if(!res||res.ok!==true) throw new Error(res?.error||"No se pudo recuperar la copia.");
       if(!res.data?.accounts||!res.data?.ops) throw new Error("Copia inválida.");
       if(confirm("Esto sustituirá los datos actuales por la copia de Drive. ¿Continuar?")){
-        db=res.data;window.db=db;db.version=25;db.accounts=db.accounts||[];db.cats=db.cats||[];db.concepts=db.concepts||[];db.opening=db.opening||{};db.ops=db.ops||[];db.investments=db.investments||[];db.prices=db.prices||{};db.accountHistory=db.accountHistory||[];db.investmentHistory=db.investmentHistory||[];db.categoryMeta=db.categoryMeta||{};db.conceptMeta=db.conceptMeta||{};db.accountMeta=db.accountMeta||{};db.typeConfig=db.typeConfig||baseDB().typeConfig;save();render();closeSettings();alert("Datos recuperados de Drive.");
+        db=res.data;window.db=db;db.version=29;db.accounts=db.accounts||[];db.cats=db.cats||[];db.concepts=db.concepts||[];db.opening=db.opening||{};db.ops=db.ops||[];db.investments=db.investments||[];db.prices=db.prices||{};db.accountHistory=db.accountHistory||[];db.investmentHistory=db.investmentHistory||[];db.categoryMeta=db.categoryMeta||{};db.conceptMeta=db.conceptMeta||{};db.accountMeta=db.accountMeta||{};db.assetMeta=db.assetMeta||{};db.assetMarketHistory=db.assetMarketHistory||[];db.typeConfig=db.typeConfig||baseDB().typeConfig;save();render();closeSettings();alert("Datos recuperados de Drive.");
       }
       setSyncStatus("Datos recibidos de Drive.");
     }catch(e){setSyncStatus("Error: "+e.message)}
@@ -605,16 +763,38 @@ function catalogRefresh(){
   const typ=document.getElementById("catalogTypeList");
   if(cat) cat.innerHTML="<b>Categorías</b>"+(db.cats||[]).map((c,i)=>{
     const on=db.categoryMeta[c]?.enabled!==false;
-    return `<div style="display:flex;gap:6px;align-items:center;margin:6px 0"><span style="flex:1">${c}</span><button class="secondary" onclick="catalogRenameCategory(${i})">Renombrar</button><button class="secondary" onclick="catalogToggleCategory('${escQ(c)}')">${on?"Desactivar":"Activar"}</button></div>`;
+    return `<div style="display:flex;gap:6px;align-items:center;margin:6px 0"><span style="flex:1">${c}</span><button class="secondary" onclick="catalogRenameCategory(${i})">Renombrar</button><button class="secondary" onclick="catalogToggleCategory('${escQ(c)}')">${on?"Desactivar":"Activar"}</button><button class="danger" onclick="catalogDeleteCategory('${escQ(c)}')">×</button></div>`;
   }).join("");
   if(con) con.innerHTML="<b>Conceptos</b>"+(db.concepts||[]).map((c,i)=>{
     const on=db.conceptMeta[c]?.enabled!==false;
-    return `<div style="display:flex;gap:6px;align-items:center;margin:6px 0"><span style="flex:1">${c}</span><button class="secondary" onclick="catalogRenameConcept(${i})">Renombrar</button><button class="secondary" onclick="catalogToggleConcept('${escQ(c)}')">${on?"Desactivar":"Activar"}</button></div>`;
+    return `<div style="display:flex;gap:6px;align-items:center;margin:6px 0"><span style="flex:1">${c}</span><button class="secondary" onclick="catalogRenameConcept(${i})">Renombrar</button><button class="secondary" onclick="catalogToggleConcept('${escQ(c)}')">${on?"Desactivar":"Activar"}</button><button class="danger" onclick="catalogDeleteConcept('${escQ(c)}')">×</button></div>`;
   }).join("");
   if(typ) typ.innerHTML="<b>Tipos de movimiento</b>"+Object.entries(db.typeConfig||{}).map(([k,v])=>
-    `<div style="display:flex;gap:6px;align-items:center;margin:6px 0"><span style="flex:1">${v.icon||"•"} ${v.label||k}</span><button class="secondary" onclick="catalogRenameType('${escQ(k)}')">Renombrar</button><button class="secondary" onclick="catalogToggleType('${escQ(k)}')">${v.enabled===false?"Activar":"Desactivar"}</button></div>`).join("");
+    `<div style="display:flex;gap:6px;align-items:center;margin:6px 0"><span style="flex:1">${v.icon||"•"} ${v.label||k}</span><button class="secondary" onclick="catalogRenameType('${escQ(k)}')">Renombrar</button><button class="secondary" onclick="catalogToggleType('${escQ(k)}')">${v.enabled===false?"Activar":"Desactivar"}</button><button class="danger" onclick="catalogDeleteType('${escQ(k)}')">×</button></div>`).join("");
 }
 function escQ(s){return String(s).replaceAll("\\","\\\\").replaceAll("'","\\'")}
+
+function catalogDeleteCategory(c){
+  const used=(db.ops||[]).some(o=>o.cat===c);
+  if(used)return alert('No se puede eliminar esta categoría porque está usada en una operación. Puedes desactivarla.');
+  if(!confirm('¿Eliminar la categoría "'+c+'"?'))return;
+  db.cats=db.cats.filter(x=>x!==c);delete db.categoryMeta[c];save();catalogRefresh();
+}
+function catalogDeleteConcept(c){
+  const used=(db.ops||[]).some(o=>o.desc===c||o.concept===c);
+  if(used)return alert('No se puede eliminar este concepto porque está usado en una operación. Puedes desactivarlo.');
+  if(!confirm('¿Eliminar el concepto "'+c+'"?'))return;
+  db.concepts=db.concepts.filter(x=>x!==c);delete db.conceptMeta[c];save();catalogRefresh();
+}
+function catalogDeleteType(k){
+  const core=['Gasto','Ingreso','Traspaso','Inversión'];
+  if(core.includes(k))return alert('Los tipos básicos de la aplicación no se pueden eliminar; puedes desactivarlos.');
+  const used=(db.ops||[]).some(o=>o.type===k);
+  if(used)return alert('No se puede eliminar este tipo porque está usado en una operación. Puedes desactivarlo.');
+  if(!confirm('¿Eliminar este tipo de movimiento?'))return;
+  delete db.typeConfig[k];save();catalogRefresh();
+}
+
 function catalogAddCategory(){
   const n=prompt("Nombre de la nueva categoría"); if(!n)return;
   const v=n.trim(); if(!v||db.cats.includes(v))return alert("Ese nombre ya existe.");
@@ -638,7 +818,7 @@ function catalogRenameConcept(i){
   const old=db.concepts[i], n=prompt("Nuevo nombre de concepto",old); if(!n)return;
   const v=n.trim(); if(!v||v===old)return; if(db.concepts.includes(v))return alert("Ese nombre ya existe.");
   db.concepts[i]=v; db.conceptMeta[v]=db.conceptMeta[old]||{enabled:true}; delete db.conceptMeta[old];
-  (db.ops||[]).forEach(o=>{if(o.concept===old)o.concept=v}); save(); catalogRefresh();
+  (db.ops||[]).forEach(o=>{if(o.desc===old)o.desc=v}); save(); catalogRefresh();
 }
 function catalogToggleConcept(c){
   db.conceptMeta[c]={...(db.conceptMeta[c]||{}),enabled:db.conceptMeta[c]?.enabled===false}; save(); catalogRefresh();
