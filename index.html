@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="theme-color" content="#111827"><link rel="manifest" href="manifest.json"><title>GastosApp · V25 · Cuentas personales + inversiones diarias</title>
+<meta name="theme-color" content="#111827"><link rel="manifest" href="manifest.json"><title>GastosApp · V26 · Cuentas + inversiones · persistencia</title>
 <style>
 :root{--bg:#f5f7fb;--card:#fff;--ink:#111827;--muted:#6b7280;--line:#e5e7eb;--accent:#111827;--green:#15803d;--red:#b91c1c;--yellow:#a16207;--blue:#1d4ed8}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);font-family:Inter,system-ui,-apple-system,Segoe UI,sans-serif;color:var(--ink)}
@@ -37,6 +37,11 @@ main{max-width:1200px;padding-top:18px}.top{max-width:1200px}
 nav{gap:6px;margin-bottom:18px}nav button{background:transparent;color:#cbd5e1;border:1px solid transparent}nav button:hover{background:#13243a;color:#fff}.secondary{background:#162338;color:#e2e8f0;border:1px solid #263a55}.primary{background:#2563eb;color:#fff}.danger{background:#3a1820;color:#fecaca}
 .card,.totalCard,.summaryPanel,.miniCard,.account,.empty,table{background:#0d1929;border-color:#203149;color:#f8fafc;box-shadow:0 8px 28px #0002}.label,.small,.accountKind,.accountPct{color:#94a3b8}.value{color:#f8fafc}.chartCard{box-shadow:0 14px 45px #0005}.statGrid .miniCard{background:linear-gradient(145deg,#0f1d30,#0a1422)}
 .summaryPanel.normal{border-top-color:#3b82f6}.summaryPanel.invest{border-top-color:#a855f7}.accountBadge{background:#16243a}.accountRow{border-top-color:#203149}table{border:1px solid #203149}th{background:#13243a;color:#cbd5e1}td{border-bottom-color:#1d2d43}input,select{background:#0b1625;color:#f8fafc;border-color:#2a3d58}input::placeholder{color:#64748b}.modal{background:#000a}.sheet{background:#0b1625;color:#f8fafc;border:1px solid #22354d}.notice.ok{background:#0b2a1d;border-color:#14532d;color:#d1fae5}.notice{background:#2a2111;border-color:#5b4516;color:#fde68a}.type{background:#142238;color:#cbd5e1;border-color:#2a3d58}.type.active{background:#2563eb;color:#fff;border-color:#2563eb}.pill{background:#17263b;color:#cbd5e1}
+
+.chartWrap{height:320px;position:relative;width:100%}.chartWrap canvas{width:100%;height:100%;display:block}
+.pageIntro{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;margin-bottom:18px}.pageIntro h2{margin:0;font-size:27px}.pageIntro .small{margin-top:4px}
+.kpiRow{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:14px}.kpi{background:var(--card,#fff);border:1px solid var(--line);border-radius:16px;padding:15px}.kpi .label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}.kpi .value{font-size:22px;font-weight:800;margin-top:5px}
+@media(max-width:850px){.kpiRow{grid-template-columns:repeat(2,minmax(0,1fr))}.pageIntro{align-items:flex-start;flex-direction:column}}
 </style></head>
 <body>
 <header><div class="top"><div><h1>GastosApp</h1><div class="sub">Septiembre 2026 · cuentas · gastos · patrimonio</div></div><div style="display:flex;gap:8px"><button class="secondary" onclick="openSettings()">⚙</button><button class="secondary" onclick="document.getElementById('roadmapModal').classList.add('show')">🚀 Hoja de ruta</button></div></div></header>
@@ -219,7 +224,7 @@ function recordAccountSnapshot(){
   localStorage.setItem(KEY,JSON.stringify(db));
 }
 
-function setAutoSync(v){localStorage.setItem("gastosAutoSync",v?"true":"false");if(v)syncToDrive(true)}
+function setAutoSync(v){localStorage.setItem("gastosAutoSync","true");syncToDrive(true)}
 function netWorth(){return db.accounts.reduce((s,a)=>s+(accountKind(a)==='investment'?totalInvestmentAccount(a):balance(a)),0)}
 function euro(n){return new Intl.NumberFormat('es-ES',{style:'currency',currency:'EUR'}).format(Number(n)||0)}function monthName(ym){return new Date(ym+'-01T12:00:00').toLocaleDateString('es-ES',{month:'long',year:'numeric'}).replace(/^./,x=>x.toUpperCase())}
 function balance(acc){let b=Number(db.opening[acc]||0);for(const o of db.ops){if(o.origin===acc){if(o.type==='Ingreso')b+=o.amount;else if(o.type==='Gasto'||o.type==='Inversión'||o.type==='Traspaso')b-=o.amount}if(o.type==='Traspaso'&&o.dest===acc)b+=o.amount}return b}
@@ -256,60 +261,55 @@ function drawWealthChart(){
   const step=Math.max(1,Math.floor(history.length/6));
   history.forEach((h,i)=>{if(i%step===0||i===history.length-1)ctx.fillText(h.date.slice(5),x(i)-12,H-10);});
 }
+function investmentDailySeries(){
+  const dates=(db.ops||[]).map(o=>o.date).filter(Boolean).sort();
+  if(!dates.length)return [{date:new Date().toISOString().slice(0,10),assets:{},cash:investmentAccounts().reduce((s,a)=>s+Number(db.opening[a]||0),0)}];
+  const names=[];
+  investmentOps().forEach(o=>{const n=(o.asset||o.desc||'Inversión').trim()||'Inversión';if(!names.includes(n))names.push(n)});
+  const start=dates[0],end=new Date().toISOString().slice(0,10),days=dateRange(start,end);
+  return days.map(day=>{
+    const assets={};let cash=0;
+    for(const o of db.ops||[]){
+      if(o.date>day)continue;
+      if(o.type==='Inversión'&&accountKind(o.origin)==='investment'){
+        const n=(o.asset||o.desc||'Inversión').trim()||'Inversión';assets[n]=(assets[n]||0)+(Number(o.amount)||0);
+      }
+    }
+    investmentAccounts().forEach(acc=>{cash+=investmentCashAt(acc,day)});
+    return {date:day,assets,cash};
+  });
+}
 function investmentHistorySnapshot(){
-  const history=db.investmentHistory||[];
-  const day=new Date().toISOString().slice(0,10);
-  const assets={};
-  for(const o of investmentOps()){
-    if(o.date>day) continue;
-    const name=(o.asset||o.desc||'Inversión').trim()||'Inversión';
-    assets[name]=(assets[name]||0)+(Number(o.amount)||0);
-  }
-  let cash=0;
-  for(const a of investmentAccounts()){
-    cash+=investmentCashAt(a,day);
-  }
-  const snap={date:day,assets,cash};
-  const last=history[history.length-1];
-  if(!last||last.date!==day) history.push(snap); else history[history.length-1]=snap;
-  db.investmentHistory=history.slice(-400);
+  const series=investmentDailySeries();
+  db.investmentHistory=series.slice(-400);
   localStorage.setItem(KEY,JSON.stringify(db));
 }
-function investmentCashAt(acc,day){
-  let b=Number(db.opening[acc]||0);
-  for(const o of db.ops||[]){
-    if(o.date>day) continue;
-    if(o.origin===acc){
-      if(o.type==='Ingreso') b+=Number(o.amount)||0;
-      else if(o.type==='Gasto'||o.type==='Inversión'||o.type==='Traspaso') b-=Number(o.amount)||0;
-    }
-    if(o.type==='Traspaso'&&o.dest===acc) b+=Number(o.amount)||0;
-  }
-  return b;
-}
 function investmentChartSeries(){
-  investmentHistorySnapshot();
-  const history=(db.investmentHistory||[]).slice(-120);
+  const history=investmentDailySeries().slice(-400);
   const names=[];
   history.forEach(h=>Object.keys(h.assets||{}).forEach(n=>{if(!names.includes(n))names.push(n)}));
   return {history,names};
 }
-function drawInvestmentChart(){
-  const canvas=document.getElementById('investmentChart');if(!canvas)return;
+function drawSeriesCanvas(canvas,history,names,includeCash){
   const ctx=canvas.getContext('2d'),rect=canvas.getBoundingClientRect(),dpr=window.devicePixelRatio||1;
   canvas.width=Math.max(1,rect.width*dpr);canvas.height=Math.max(1,rect.height*dpr);ctx.setTransform(dpr,0,0,dpr,0,0);
-  const W=rect.width,H=rect.height,pad={l:52,r:18,t:18,b:34};ctx.clearRect(0,0,W,H);
-  const {history,names}=investmentChartSeries();const series=[...names,'Efectivo'];
-  if(!history.length){ctx.fillStyle='#94a3b8';ctx.font='13px system-ui';ctx.fillText('Todavía no hay histórico diario de inversiones.',20,30);return}
-  const vals=[];history.forEach(h=>{names.forEach(n=>vals.push(Number(h.assets?.[n]||0)));vals.push(Number(h.cash||0))});
+  const W=rect.width,H=rect.height,pad={l:56,r:18,t:18,b:34};ctx.clearRect(0,0,W,H);
+  if(!history.length){ctx.fillStyle='#94a3b8';ctx.font='13px system-ui';ctx.fillText('Todavía no hay datos suficientes.',20,30);return}
+  const getter=(h,n)=>includeCash&&n==='Efectivo'?Number(h.cash||0):Number(h.accounts?.[n]??h.assets?.[n]??0);
+  const series=[...names,...(includeCash?['Efectivo']:[])];
+  const vals=[];history.forEach(h=>series.forEach(n=>vals.push(getter(h,n))));
   let min=Math.min(0,...vals),max=Math.max(1,...vals);if(max===min)max=min+1;const span=max-min,yMin=min-span*.08,yMax=max+span;
   const x=i=>pad.l+(i/Math.max(1,history.length-1))*(W-pad.l-pad.r),y=v=>H-pad.b-((v-yMin)/(yMax-yMin))*(H-pad.t-pad.b);
   ctx.strokeStyle='#243244';ctx.lineWidth=1;ctx.font='10px system-ui';ctx.fillStyle='#94a3b8';
   for(let j=0;j<5;j++){const yy=pad.t+j*(H-pad.t-pad.b)/4;ctx.beginPath();ctx.moveTo(pad.l,yy);ctx.lineTo(W-pad.r,yy);ctx.stroke();ctx.fillText(euro(yMax-(yMax-yMin)*j/4),4,yy+3)}
-  const palette=['#3b82f6','#a855f7','#22c55e','#f59e0b','#ef4444','#06b6d4','#eab308','#ec4899','#14b8a6','#8b5cf6','#fb7185','#38bdf8'];
-  series.forEach((n,idx)=>{ctx.beginPath();history.forEach((h,i)=>{const v=n==='Efectivo'?Number(h.cash||0):Number(h.assets?.[n]||0);const xx=x(i),yy=y(v);i?ctx.lineTo(xx,yy):ctx.moveTo(xx,yy)});ctx.strokeStyle=n==='Efectivo'?'#cbd5e1':palette[idx%palette.length];ctx.lineWidth=n==='Efectivo'?2.5:2;ctx.setLineDash(n==='Efectivo'?[7,5]:[]);ctx.stroke();ctx.setLineDash([])});
-  const step=Math.max(1,Math.floor(history.length/7));ctx.fillStyle='#94a3b8';ctx.font='10px system-ui';
+  series.forEach((n,idx)=>{ctx.beginPath();history.forEach((h,i)=>{const xx=x(i),yy=y(getter(h,n));i?ctx.lineTo(xx,yy):ctx.moveTo(xx,yy)});ctx.strokeStyle=includeCash&&n==='Efectivo'?'#cbd5e1':chartPalette(idx);ctx.lineWidth=includeCash&&n==='Efectivo'?2.5:2;ctx.setLineDash(includeCash&&n==='Efectivo'?[7,5]:[]);ctx.stroke();ctx.setLineDash([])});
+  const step=Math.max(1,Math.floor(history.length/7));ctx.fillStyle='#94a3b8';
   history.forEach((h,i)=>{if(i%step===0||i===history.length-1)ctx.fillText(h.date.slice(5),x(i)-12,H-10)});
+}
+function drawInvestmentChart(){
+  const canvas=document.getElementById('investmentChart');if(!canvas)return;
+  const {history,names}=investmentChartSeries();
+  drawSeriesCanvas(canvas,history,names,true);
 }
 function showInvestments(){
   ensureAccountMeta();
@@ -340,7 +340,7 @@ function render(){
   const normalTotal=normal.reduce((s,a)=>s+balance(a),0),investTotal=invest.reduce((s,a)=>s+totalInvestmentAccount(a),0),cash=normalTotal+invest.reduce((s,a)=>s+balance(a),0),inv=totalInvestedCapital(),wealth=normalTotal+investTotal;
   document.getElementById('app').innerHTML=`<div class="dashboardHero">
 <div class="totalCard"><div class="label">Patrimonio total</div><div class="value">${euro(wealth)}</div><div class="small">Cuentas normales + cuentas de inversión · compras de inversión incluidas en su cuenta</div></div>
-<div class="chartCard"><div class="chartHead"><div><div class="chartTitle">Evolución del patrimonio</div><div class="chartSub">Todas las cuentas en una sola gráfica · cada línea representa una cuenta</div></div><div class="rangeBtns"><button class="rangeBtn active">TODO</button></div></div><div class="chartWrap"><canvas id="wealthChart"></canvas></div><div class="legend">${db.accounts.map((a,i)=>`<span class="legendItem"><span class="legendDot" style="background:${['#3b82f6','#a855f7','#22c55e','#f59e0b','#ef4444','#06b6d4','#eab308','#ec4899','#14b8a6','#8b5cf6'][i%10]}"></span>${a}</span>`).join('')}</div></div>
+<div class="chartCard"><div class="chartHead"><div><div class="chartTitle">Evolución del patrimonio</div><div class="chartSub">Todas las cuentas en una sola gráfica · cada línea representa una cuenta</div></div><div class="rangeBtns"><button class="rangeBtn active">TODO</button></div></div><div class="chartWrap"><canvas id="wealthChart"></canvas></div><div class="legend">${normal.map((a,i)=>`<span class="legendItem"><span class="legendDot" style="background:${chartPalette(i)}"></span>${a}</span>`).join('')}</div></div>
 <div class="statGrid"><div class="miniCard"><div class="label">Ingresos ${monthName(ym)}</div><div class="value green">${euro(t.i)}</div></div><div class="miniCard"><div class="label">Gastos ${monthName(ym)}</div><div class="value red">${euro(t.g)}</div></div><div class="miniCard"><div class="label">Resultado</div><div class="value ${t.r>=0?'green':'red'}">${euro(t.r)}</div></div><div class="miniCard"><div class="label">Inversiones del mes</div><div class="value yellow">${euro(t.inv)}</div></div></div>
 <div class="summaryGrid">
 <div class="summaryPanel normal"><div class="summaryPanelHead"><div><h3>💳 Cuentas normales</h3><div class="bigMoney">${euro(normalTotal)}</div></div><div class="delta">Disponible</div></div>${normal.length?normal.map(a=>`<div class="accountRow"><div><div class="accountName"><span class="accountBadge">🏦</span>${a}</div><div class="accountKind">Cuenta normal</div></div><div class="accountAmount">${euro(balance(a))}</div><div class="accountPct">${normalTotal?((balance(a)/normalTotal)*100).toFixed(1):'0.0'}%</div></div>`).join(''):'<div class="empty">No hay cuentas normales.</div>'}</div>
@@ -355,11 +355,41 @@ function showMovimientos(){document.getElementById('app').innerHTML=`<div class=
 function showCuentas(){
   ensureAccountMeta();
   const normal=normalAccounts();
-  const accountCard=a=>`<div class="account"><div><b>${a}</b><div class="small">Cuenta personal · efectivo disponible</div></div><div style="text-align:right"><b>${euro(balance(a))}</b></div></div>`;
-  document.getElementById('app').innerHTML=`<div class="section"><div class="sectionTitle"><div><h2>👤 Cuentas personales</h2><div class="small">Dinero disponible y cuentas que no contienen inversiones.</div></div><button class="primary" onclick="openSettings()">⚙️ Gestionar cuentas</button></div><div class="accounts">${normal.map(accountCard).join('')||'<div class="empty">No hay cuentas personales. Crea una cuenta desde Configuración.</div>'}</div></div>
-  <div class="notice ok" style="margin-top:14px">Las cuentas de inversión aparecen exclusivamente en <b>📈 Inversiones</b>.</div>`;
+  const total=normal.reduce((sum,a)=>sum+balance(a),0);
+  const history=accountDailySeries();
+  document.getElementById('app').innerHTML=`<div class="pageIntro"><div><h2>👤 Cuentas personales</h2><div class="small">Dinero disponible en tus cuentas personales. Las inversiones se gestionan por separado.</div></div><button class="primary" onclick="openSettings()">⚙️ Gestionar cuentas</button></div>
+  <div class="kpiRow"><div class="kpi"><div class="label">Disponible total</div><div class="value">${euro(total)}</div></div><div class="kpi"><div class="label">Cuentas</div><div class="value">${normal.length}</div></div><div class="kpi"><div class="label">Ingresos mes</div><div class="value green">${euro(totals(new Date().toISOString().slice(0,7)).i)}</div></div><div class="kpi"><div class="label">Gastos mes</div><div class="value red">${euro(totals(new Date().toISOString().slice(0,7)).g)}</div></div></div>
+  <div class="chartCard"><div class="chartHead"><div><div class="chartTitle">Evolución diaria de cuentas personales</div><div class="chartSub">Una línea por cada cuenta personal</div></div></div><div class="chartWrap"><canvas id="personalChart"></canvas></div><div class="legend">${normal.map((n,i)=>`<span class="legendItem"><span class="legendDot" style="background:${chartPalette(i)}"></span>${n}</span>`).join('')}</div></div>
+  <div class="section"><div class="sectionTitle"><h2>Cuentas</h2><button class="secondary" onclick="openSettings()">＋ Añadir / gestionar</button></div><div class="accounts">${normal.map(a=>`<div class="account"><div><b>${a}</b><div class="small">Cuenta personal</div></div><div style="text-align:right"><b>${euro(balance(a))}</b></div></div>`).join('')||'<div class="empty">No hay cuentas personales. Crea una desde Configuración.</div>'}</div></div>`;
+  drawPersonalChart();
 }
-function showInvestments(){showCuentas()}
+function chartPalette(i){return ['#3b82f6','#a855f7','#22c55e','#f59e0b','#ef4444','#06b6d4','#eab308','#ec4899','#14b8a6','#8b5cf6','#fb7185','#38bdf8'][i%12]}
+function dateRange(start,end){
+  const out=[],d=new Date(start+'T12:00:00'),last=new Date(end+'T12:00:00');
+  while(d<=last){out.push(d.toISOString().slice(0,10));d.setDate(d.getDate()+1)}
+  return out;
+}
+function accountBalanceAt(acc,day){
+  let b=Number(db.opening[acc]||0);
+  for(const o of db.ops||[]){
+    if(o.date>day)continue;
+    if(o.origin===acc){
+      if(o.type==='Ingreso')b+=Number(o.amount)||0;
+      else if(o.type==='Gasto'||o.type==='Inversión'||o.type==='Traspaso')b-=Number(o.amount)||0;
+    }
+    if(o.type==='Traspaso'&&o.dest===acc)b+=Number(o.amount)||0;
+  }
+  return b;
+}
+function accountDailySeries(){
+  const names=normalAccounts(), dates=(db.ops||[]).map(o=>o.date).filter(Boolean).sort();
+  const start=dates[0]||new Date().toISOString().slice(0,10), end=new Date().toISOString().slice(0,10);
+  return dateRange(start,end).map(date=>({date,accounts:Object.fromEntries(names.map(a=>[a,accountBalanceAt(a,date)]))}));
+}
+function drawPersonalChart(){
+  const canvas=document.getElementById('personalChart');if(!canvas)return;
+  drawSeriesCanvas(canvas,accountDailySeries(),normalAccounts(),false);
+}
 function openOp(editId){window.editingOp=editId||null;document.getElementById('modalTitle').textContent=editId?'Editar operación':'Nueva operación';type='Gasto';document.querySelectorAll('.type').forEach(b=>b.classList.toggle('active',b.dataset.t===type));const o=editId?db.ops.find(x=>x.id===editId):null;document.getElementById('fDate').value=o?.date||new Date().toISOString().slice(0,10);document.getElementById('fAmount').value=o?.amount||'';fillSelect('fOrigin',db.accounts,o?.origin||db.accounts[0]);fillSelect('fDest',db.accounts,o?.dest||db.accounts[1]);fillSelect('fCat',db.cats,o?.cat||db.cats[0]);fillSelect('fConcept',['',...db.concepts],o?.desc||'');document.getElementById('fDesc').value='';if(document.getElementById('fAsset'))document.getElementById('fAsset').value=o?.asset||'';setType(o?.type||'Gasto');document.getElementById('modal').classList.add('show')}
 function fillSelect(id,arr,val){document.getElementById(id).innerHTML=arr.map(x=>`<option value="${String(x).replaceAll('"','&quot;')}">${x||'— Sin concepto —'}</option>`).join('');if(arr.includes(val))document.getElementById(id).value=val}
 function setType(t){type=t;document.querySelectorAll('.type').forEach(b=>b.classList.toggle('active',b.dataset.t===t));document.getElementById('destWrap').style.display=t==='Traspaso'?'block':'none';document.getElementById('catWrap').style.display=t==='Traspaso'?'none':'block';if(document.getElementById('assetWrap'))document.getElementById('assetWrap').style.display=t==='Inversión'?'block':'none';const o=document.getElementById('fOrigin');if(t==='Inversión')fillSelect('fOrigin',investmentAccounts(),o.value||investmentAccounts()[0]);else fillSelect('fOrigin',db.accounts,o.value||db.accounts[0])}
@@ -415,8 +445,8 @@ function saveSyncConfig(){
   const url=document.getElementById("syncUrl").value.trim();
   const token=document.getElementById("syncToken").value.trim();
   if(!url||!token)return alert("Introduce la URL y la clave.");
-  localStorage.setItem("gastosSyncConfig",JSON.stringify({url,token}));
-  setSyncStatus("Conexión guardada.");
+  localStorage.setItem("gastosSyncConfig",JSON.stringify({url,token})); localStorage.setItem("gastosAutoSync","true");
+  setSyncStatus("Conexión guardada. Sincronización automática activada."); syncToDrive(true);
 }
 function setSyncStatus(s){const el=document.getElementById("syncStatus");if(el)el.textContent=s}
 function syncToDrive(silent=false){
@@ -449,8 +479,10 @@ function restoreFromDrive(){
 }
 function loadSyncFields(){
   const c=getSyncConfig();
-  const u=document.getElementById("syncUrl"),t=document.getElementById("syncToken");
+  const u=document.getElementById("syncUrl"),t=document.getElementById("syncToken"),a=document.getElementById("autoSyncToggle");
   if(u)u.value=c.url||""; if(t)t.value=c.token||"";
+  localStorage.setItem("gastosAutoSync","true");
+  if(a)a.checked=true;
 }
 let marketTimer=null;
 function startMarketRefresh(){
@@ -465,6 +497,25 @@ function clearAll(){
   localStorage.removeItem(KEY);
   db=baseDB(); window.db=db; save(); location.reload();
 }
+
+function hasLocalData(){
+  return (db.accounts||[]).length>0 || (db.ops||[]).length>0 || (db.cats||[]).length>0 || (db.concepts||[]).length>0;
+}
+function autoRestoreIfEmpty(){
+  const c=getSyncConfig();if(!c.url||!c.token||hasLocalData())return;
+  const cb="gastosAuto_"+Date.now();
+  window[cb]=(res)=>{
+    try{
+      delete window[cb];
+      if(!res||res.ok!==true||!res.data)return;
+      db=res.data;window.db=db;
+      db.accounts=db.accounts||[];db.cats=db.cats||[];db.concepts=db.concepts||[];db.opening=db.opening||{};db.ops=db.ops||[];db.investments=db.investments||[];db.prices=db.prices||{};db.accountHistory=db.accountHistory||[];db.investmentHistory=db.investmentHistory||[];db.categoryMeta=db.categoryMeta||{};db.conceptMeta=db.conceptMeta||{};db.accountMeta=db.accountMeta||{};db.typeConfig=db.typeConfig||baseDB().typeConfig;
+      localStorage.setItem(KEY,JSON.stringify(db));render();
+    }catch(e){}
+  };
+  const sc=document.createElement("script");sc.src=c.url+"?action=get&token="+encodeURIComponent(c.token)+"&callback="+cb;document.body.appendChild(sc);
+}
+setTimeout(autoRestoreIfEmpty,700);
 render();
 </script>
 <div id="roadmapModal" class="modal">
