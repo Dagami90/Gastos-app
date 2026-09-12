@@ -97,42 +97,37 @@ async function restoreDriveSilently(force=false){
  if(!url||!token)return false;
  driveStatus='restoring';updateSyncBadge();
 
- // First try a normal GET. Apps Script may expose the JSON response directly.
- try{
-   const r=await fetch(url+'?action=get&token='+encodeURIComponent(token)+'&_='+Date.now(),{method:'GET',cache:'no-store'});
-   if(r.ok){
-     const text=await r.text();
-     const res=JSON.parse(text);
-     if(res&&res.ok===true&&res.data) return applyDriveData(res.data,url,token,force,res.savedAt);
-   }
- }catch(e){ /* CORS/redirect: use JSONP fallback below. */ }
-
- // JSONP fallback. Use one fixed, global callback and a script tag.
+ // Recuperación mediante puente postMessage alojado en Apps Script.
+ // Evita CORS/JSONP y funciona aunque GitHub Pages no pueda leer directamente
+ // la respuesta de Google. Nunca modifica los datos locales hasta validar la copia.
  return await new Promise(resolve=>{
-   const cb='gastosDriveCallback';
-   let done=false;
-   const sc=document.createElement('script');
-   const cleanup=v=>{
+   let done=false, timer=null, frame=null;
+   const finish=(ok)=>{
      if(done)return; done=true;
-     try{delete window[cb]}catch(e){window[cb]=undefined}
-     try{sc.remove()}catch(e){}
-     clearTimeout(timer); resolve(v);
+     window.removeEventListener('message',onMessage);
+     if(timer)clearTimeout(timer);
+     if(frame)frame.remove();
+     if(!ok){driveStatus='error';updateSyncBadge();}
+     resolve(ok);
    };
-   let timer=null;
-   window[cb]=res=>{
-     try{
-       if(!res||res.ok!==true||!res.data) return cleanup(false);
-       cleanup(applyDriveData(res.data,url,token,force,res.savedAt));
-     }catch(e){cleanup(false)}
+   const onMessage=(ev)=>{
+     const d=ev.data;
+     if(!d||d.source!=='GastosAppDrive')return;
+     if(d.ok===true&&d.data){
+       try{finish(applyDriveData(d.data,url,token,force,d.savedAt));}
+       catch(e){finish(false)}
+     }else finish(false);
    };
-   sc.async=true;
-   sc.onerror=()=>{driveStatus='error';updateSyncBadge();cleanup(false)};
-   timer=setTimeout(()=>{driveStatus='error';updateSyncBadge();cleanup(false)},20000);
-   sc.src=url+'?action=get&token='+encodeURIComponent(token)+'&callback='+cb+'&_='+Date.now();
-   document.body.appendChild(sc);
+   window.addEventListener('message',onMessage);
+   frame=document.createElement('iframe');
+   frame.style.cssText='position:fixed;width:1px;height:1px;left:-10px;top:-10px;border:0;opacity:0;pointer-events:none';
+   frame.setAttribute('aria-hidden','true');
+   const origin=location.origin;
+   frame.src=url+'?action=bridge&token='+encodeURIComponent(token)+'&origin='+encodeURIComponent(origin)+'&_='+Date.now();
+   document.body.appendChild(frame);
+   timer=setTimeout(()=>finish(false),20000);
  });
 }
-
 function applyDriveData(x,url,token,force,savedAt){
  try{
    if(!Array.isArray(x.accounts)||!Array.isArray(x.ops))return false;
