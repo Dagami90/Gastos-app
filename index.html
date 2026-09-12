@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="theme-color" content="#111827"><link rel="manifest" href="manifest.json"><title>GastosApp · V24 · Inversiones + gráficos</title>
+<meta name="theme-color" content="#111827"><link rel="manifest" href="manifest.json"><title>GastosApp · V25 · Cuentas personales + inversiones diarias</title>
 <style>
 :root{--bg:#f5f7fb;--card:#fff;--ink:#111827;--muted:#6b7280;--line:#e5e7eb;--accent:#111827;--green:#15803d;--red:#b91c1c;--yellow:#a16207;--blue:#1d4ed8}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);font-family:Inter,system-ui,-apple-system,Segoe UI,sans-serif;color:var(--ink)}
@@ -40,7 +40,7 @@ nav{gap:6px;margin-bottom:18px}nav button{background:transparent;color:#cbd5e1;b
 </style></head>
 <body>
 <header><div class="top"><div><h1>GastosApp</h1><div class="sub">Septiembre 2026 · cuentas · gastos · patrimonio</div></div><div style="display:flex;gap:8px"><button class="secondary" onclick="openSettings()">⚙</button><button class="secondary" onclick="document.getElementById('roadmapModal').classList.add('show')">🚀 Hoja de ruta</button></div></div></header>
-<main><nav><button class="secondary" onclick="showView('dashboard')">Dashboard</button><button class="secondary" onclick="showView('movimientos')">Movimientos</button><button class="secondary" onclick="showView('cuentas')">Cuentas</button><button class="secondary" onclick="showView('inversiones')">📈 Inversiones</button></nav><div id="app"></div></main>
+<main><nav><button class="secondary" onclick="showView('dashboard')">Dashboard</button><button class="secondary" onclick="showView('movimientos')">Movimientos</button><button class="secondary" onclick="showView('cuentas')">👤 Cuentas personales</button><button class="secondary" onclick="showView('inversiones')">📈 Inversiones</button></nav><div id="app"></div></main>
 <button class="fab" onclick="openOp()">＋ Añadir operación</button>
 
 <div class="modal" id="modal"><div class="sheet"><h2 id="modalTitle">Nueva operación</h2><div class="types"><button class="type active" data-t="Gasto" onclick="setType('Gasto')">💸 Gasto</button><button class="type" data-t="Ingreso" onclick="setType('Ingreso')">💰 Ingreso</button><button class="type" data-t="Traspaso" onclick="setType('Traspaso')">🔄 Traspaso</button><button class="type" data-t="Inversión" onclick="setType('Inversión')">📈 Inversión</button></div>
@@ -140,7 +140,7 @@ function baseDB(){
       Traspaso:{label:"Traspaso",icon:"🔄",enabled:true},
       Inversión:{label:"Inversión",icon:"📈",enabled:true}
     },
-    version:23
+    version:25
   }
 }
 let syncTimer=null;
@@ -174,7 +174,7 @@ function save(){
   recordAccountSnapshot();
   if(localStorage.getItem("gastosAutoSync")!=="false"){
     clearTimeout(syncTimer);
-    syncTimer=setTimeout(()=>syncToDrive(true),2500);
+    syncTimer=setTimeout(()=>syncToDrive(true),400);
   }
 }
 function recordNetWorthSnapshot(){
@@ -261,16 +261,31 @@ function investmentHistorySnapshot(){
   const day=new Date().toISOString().slice(0,10);
   const assets={};
   for(const o of investmentOps()){
+    if(o.date>day) continue;
     const name=(o.asset||o.desc||'Inversión').trim()||'Inversión';
     assets[name]=(assets[name]||0)+(Number(o.amount)||0);
   }
-  const cash=investmentAccounts().reduce((s,a)=>s+balance(a),0);
+  let cash=0;
+  for(const a of investmentAccounts()){
+    cash+=investmentCashAt(a,day);
+  }
   const snap={date:day,assets,cash};
   const last=history[history.length-1];
-  if(!last||last.date!==day) history.push(snap);
-  else history[history.length-1]=snap;
+  if(!last||last.date!==day) history.push(snap); else history[history.length-1]=snap;
   db.investmentHistory=history.slice(-400);
   localStorage.setItem(KEY,JSON.stringify(db));
+}
+function investmentCashAt(acc,day){
+  let b=Number(db.opening[acc]||0);
+  for(const o of db.ops||[]){
+    if(o.date>day) continue;
+    if(o.origin===acc){
+      if(o.type==='Ingreso') b+=Number(o.amount)||0;
+      else if(o.type==='Gasto'||o.type==='Inversión'||o.type==='Traspaso') b-=Number(o.amount)||0;
+    }
+    if(o.type==='Traspaso'&&o.dest===acc) b+=Number(o.amount)||0;
+  }
+  return b;
 }
 function investmentChartSeries(){
   investmentHistorySnapshot();
@@ -280,29 +295,20 @@ function investmentChartSeries(){
   return {history,names};
 }
 function drawInvestmentChart(){
-  const canvas=document.getElementById('investmentChart'); if(!canvas)return;
+  const canvas=document.getElementById('investmentChart');if(!canvas)return;
   const ctx=canvas.getContext('2d'),rect=canvas.getBoundingClientRect(),dpr=window.devicePixelRatio||1;
   canvas.width=Math.max(1,rect.width*dpr);canvas.height=Math.max(1,rect.height*dpr);ctx.setTransform(dpr,0,0,dpr,0,0);
-  const W=rect.width,H=rect.height,pad={l:52,r:18,t:18,b:34};
-  ctx.clearRect(0,0,W,H);
-  const {history,names}=investmentChartSeries();
-  const seriesNames=[...names,'Efectivo'];
-  if(!history.length){ctx.fillStyle='#94a3b8';ctx.font='13px system-ui';ctx.fillText('Todavía no hay histórico de inversiones.',20,30);return;}
-  const vals=[];
-  history.forEach(h=>{names.forEach(n=>vals.push(Number(h.assets?.[n]||0)));vals.push(Number(h.cash||0))});
-  let min=0,max=Math.max(1,...vals),span=Math.max(1,max-min),yMin=Math.min(0,min-span*.08),yMax=max+span*.08;
-  const x=i=>pad.l+(i/Math.max(1,history.length-1))*(W-pad.l-pad.r);
-  const y=v=>H-pad.b-((v-yMin)/(yMax-yMin))*(H-pad.t-pad.b);
+  const W=rect.width,H=rect.height,pad={l:52,r:18,t:18,b:34};ctx.clearRect(0,0,W,H);
+  const {history,names}=investmentChartSeries();const series=[...names,'Efectivo'];
+  if(!history.length){ctx.fillStyle='#94a3b8';ctx.font='13px system-ui';ctx.fillText('Todavía no hay histórico diario de inversiones.',20,30);return}
+  const vals=[];history.forEach(h=>{names.forEach(n=>vals.push(Number(h.assets?.[n]||0)));vals.push(Number(h.cash||0))});
+  let min=Math.min(0,...vals),max=Math.max(1,...vals);if(max===min)max=min+1;const span=max-min,yMin=min-span*.08,yMax=max+span;
+  const x=i=>pad.l+(i/Math.max(1,history.length-1))*(W-pad.l-pad.r),y=v=>H-pad.b-((v-yMin)/(yMax-yMin))*(H-pad.t-pad.b);
   ctx.strokeStyle='#243244';ctx.lineWidth=1;ctx.font='10px system-ui';ctx.fillStyle='#94a3b8';
   for(let j=0;j<5;j++){const yy=pad.t+j*(H-pad.t-pad.b)/4;ctx.beginPath();ctx.moveTo(pad.l,yy);ctx.lineTo(W-pad.r,yy);ctx.stroke();ctx.fillText(euro(yMax-(yMax-yMin)*j/4),4,yy+3)}
   const palette=['#3b82f6','#a855f7','#22c55e','#f59e0b','#ef4444','#06b6d4','#eab308','#ec4899','#14b8a6','#8b5cf6','#fb7185','#38bdf8'];
-  seriesNames.forEach((n,idx)=>{
-    ctx.beginPath();
-    history.forEach((h,i)=>{const v=n==='Efectivo'?Number(h.cash||0):Number(h.assets?.[n]||0);const xx=x(i),yy=y(v);i?ctx.lineTo(xx,yy):ctx.moveTo(xx,yy)});
-    ctx.strokeStyle=n==='Efectivo'?'#cbd5e1':palette[idx%palette.length];ctx.lineWidth=n==='Efectivo'?2.5:2;ctx.setLineDash(n==='Efectivo'?[7,5]:[]);ctx.stroke();ctx.setLineDash([]);
-  });
-  const step=Math.max(1,Math.floor(history.length/6));
-  ctx.fillStyle='#94a3b8';ctx.font='10px system-ui';
+  series.forEach((n,idx)=>{ctx.beginPath();history.forEach((h,i)=>{const v=n==='Efectivo'?Number(h.cash||0):Number(h.assets?.[n]||0);const xx=x(i),yy=y(v);i?ctx.lineTo(xx,yy):ctx.moveTo(xx,yy)});ctx.strokeStyle=n==='Efectivo'?'#cbd5e1':palette[idx%palette.length];ctx.lineWidth=n==='Efectivo'?2.5:2;ctx.setLineDash(n==='Efectivo'?[7,5]:[]);ctx.stroke();ctx.setLineDash([])});
+  const step=Math.max(1,Math.floor(history.length/7));ctx.fillStyle='#94a3b8';ctx.font='10px system-ui';
   history.forEach((h,i)=>{if(i%step===0||i===history.length-1)ctx.fillText(h.date.slice(5),x(i)-12,H-10)});
 }
 function showInvestments(){
@@ -348,10 +354,10 @@ function render(){
 function showMovimientos(){document.getElementById('app').innerHTML=`<div class="section"><h2>Historial · septiembre 2026</h2><div class="scroll"><table><thead><tr><th>Fecha</th><th>Tipo</th><th>Descripción</th><th>Categoría</th><th>Cuenta</th><th>Importe</th><th></th></tr></thead><tbody>${[...db.ops].reverse().map(o=>`<tr><td>${o.date}</td><td>${o.type}</td><td>${o.desc}</td><td>${o.cat}</td><td>${o.type==='Traspaso'?o.origin+' → '+o.dest:o.origin}</td><td>${euro(o.amount)}</td><td><button class="secondary" onclick="editOp('${o.id}')">Editar</button> <button class="danger" onclick="deleteOp('${o.id}')">×</button></td></tr>`).join('')}</tbody></table></div></div>`}
 function showCuentas(){
   ensureAccountMeta();
-  const normal=normalAccounts(),invest=investmentAccounts();
-  const accountCard=a=>{const isInv=accountKind(a)==='investment';const cash=balance(a),cap=isInv?investedCapitalByAccount(a):0;return `<div class="account"><div><b>${a}</b><div class="small">${isInv?'Cuenta de inversión · compras registradas como inversión':'Cuenta normal · efectivo disponible'}</div></div><div style="text-align:right"><b>${euro(isInv?cash+cap:cash)}</b>${isInv?`<div class="small">Efectivo ${euro(cash)} · invertido ${euro(cap)}</div>`:''}</div></div>`};
-  const invOps=investmentOps().slice(0,12);
-  document.getElementById('app').innerHTML=`<div class="section"><h2>💳 Cuentas normales</h2><div class="accounts">${normal.map(accountCard).join('')||'<div class="empty">No hay cuentas normales.</div>'}</div></div><div class="section"><h2>📈 Cuentas de inversión</h2><div class="accounts">${invest.map(accountCard).join('')||'<div class="empty">No hay cuentas de inversión.</div>'}</div></div><div class="section"><h2>Compras de inversión</h2><div class="scroll"><table><thead><tr><th>Fecha</th><th>Cuenta</th><th>Concepto</th><th>Categoría</th><th>Importe</th></tr></thead><tbody>${invOps.map(o=>`<tr><td>${o.date}</td><td>${o.origin}</td><td>${o.desc}</td><td>${o.cat||'—'}</td><td class="yellow">${euro(o.amount)}</td></tr>`).join('')||'<tr><td colspan="5">No hay compras de inversión registradas.</td></tr>'}</tbody></table></div></div><div class="notice ok" style="margin-top:14px">Las inversiones ya no se gestionan como productos independientes. Una compra hecha desde una cuenta marcada como <b>Cuenta de inversión</b> queda registrada aquí automáticamente.</div>`;
+  const normal=normalAccounts();
+  const accountCard=a=>`<div class="account"><div><b>${a}</b><div class="small">Cuenta personal · efectivo disponible</div></div><div style="text-align:right"><b>${euro(balance(a))}</b></div></div>`;
+  document.getElementById('app').innerHTML=`<div class="section"><div class="sectionTitle"><div><h2>👤 Cuentas personales</h2><div class="small">Dinero disponible y cuentas que no contienen inversiones.</div></div><button class="primary" onclick="openSettings()">⚙️ Gestionar cuentas</button></div><div class="accounts">${normal.map(accountCard).join('')||'<div class="empty">No hay cuentas personales. Crea una cuenta desde Configuración.</div>'}</div></div>
+  <div class="notice ok" style="margin-top:14px">Las cuentas de inversión aparecen exclusivamente en <b>📈 Inversiones</b>.</div>`;
 }
 function showInvestments(){showCuentas()}
 function openOp(editId){window.editingOp=editId||null;document.getElementById('modalTitle').textContent=editId?'Editar operación':'Nueva operación';type='Gasto';document.querySelectorAll('.type').forEach(b=>b.classList.toggle('active',b.dataset.t===type));const o=editId?db.ops.find(x=>x.id===editId):null;document.getElementById('fDate').value=o?.date||new Date().toISOString().slice(0,10);document.getElementById('fAmount').value=o?.amount||'';fillSelect('fOrigin',db.accounts,o?.origin||db.accounts[0]);fillSelect('fDest',db.accounts,o?.dest||db.accounts[1]);fillSelect('fCat',db.cats,o?.cat||db.cats[0]);fillSelect('fConcept',['',...db.concepts],o?.desc||'');document.getElementById('fDesc').value='';if(document.getElementById('fAsset'))document.getElementById('fAsset').value=o?.asset||'';setType(o?.type||'Gasto');document.getElementById('modal').classList.add('show')}
@@ -431,7 +437,7 @@ function restoreFromDrive(){
       if(!res||res.ok!==true) throw new Error(res?.error||"No se pudo recuperar la copia.");
       if(!res.data?.accounts||!res.data?.ops) throw new Error("Copia inválida.");
       if(confirm("Esto sustituirá los datos actuales por la copia de Drive. ¿Continuar?")){
-        db=res.data;window.db=db;db.version=13;db.investments=[];db.prices={};db.investmentModelV1=true;save();render();closeSettings();alert("Datos recuperados de Drive.");
+        db=res.data;window.db=db;db.version=25;db.accounts=db.accounts||[];db.cats=db.cats||[];db.concepts=db.concepts||[];db.opening=db.opening||{};db.ops=db.ops||[];db.investments=db.investments||[];db.prices=db.prices||{};db.accountHistory=db.accountHistory||[];db.investmentHistory=db.investmentHistory||[];db.categoryMeta=db.categoryMeta||{};db.conceptMeta=db.conceptMeta||{};db.accountMeta=db.accountMeta||{};db.typeConfig=db.typeConfig||baseDB().typeConfig;save();render();closeSettings();alert("Datos recuperados de Drive.");
       }
       setSyncStatus("Datos recibidos de Drive.");
     }catch(e){setSyncStatus("Error: "+e.message)}
