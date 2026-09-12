@@ -45,7 +45,7 @@ nav{gap:6px;margin-bottom:18px}nav button{background:transparent;color:#cbd5e1;b
 </style></head>
 <body>
 <header><div class="top"><div><h1>GastosApp</h1><div class="sub">Septiembre 2026 · cuentas · gastos · patrimonio</div></div><div style="display:flex;gap:8px"><button class="secondary" onclick="openSettings()">⚙</button><button class="secondary" onclick="document.getElementById('roadmapModal').classList.add('show')">🚀 Hoja de ruta</button></div></div></header>
-<main><nav><button class="secondary" onclick="showView('dashboard')">Dashboard</button><button class="secondary" onclick="showView('movimientos')">Movimientos</button><button class="secondary" onclick="showView('cuentas')">👤 Cuentas personales</button><button class="secondary" onclick="showView('inversiones')">📈 Inversiones</button></nav><div id="app"></div></main>
+<main><nav><button class="secondary" onclick="showView('dashboard')">Dashboard</button><button class="secondary" onclick="showView('movimientos')">Movimientos</button><button class="secondary" onclick="showView('cuentas')">👤 Cuentas personales</button><button class="secondary" onclick="event.preventDefault();event.stopPropagation();showInvestments()">📈 Inversiones</button></nav><div id="app"></div></main>
 <button class="fab" onclick="openOp()">＋ Añadir operación</button>
 
 <div class="modal" id="modal"><div class="sheet"><h2 id="modalTitle">Nueva operación</h2><div class="types"><button class="type active" data-t="Gasto" onclick="setType('Gasto')">💸 Gasto</button><button class="type" data-t="Ingreso" onclick="setType('Ingreso')">💰 Ingreso</button><button class="type" data-t="Traspaso" onclick="setType('Traspaso')">🔄 Traspaso</button><button class="type" data-t="Inversión" onclick="setType('Inversión')">📈 Inversión</button></div>
@@ -171,7 +171,7 @@ db.budgets=db.budgets||{};
 db.recurring=db.recurring||[];
 db.market=db.market||{provider:'coingecko+twelvedata',apiKey:'',interval:15};
 db.typeConfig=db.typeConfig||baseDB().typeConfig;
-db.version=35;
+db.version=36;
 
 function save(){
   localStorage.setItem(KEY,JSON.stringify(db));
