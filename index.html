@@ -322,11 +322,28 @@ function balance(acc){let b=Number(db.opening[acc]||0);for(const o of db.ops){if
 function totals(ym){let i=0,g=0,inv=0;for(const o of db.ops){if(o.date.slice(0,7)!==ym)continue;if(o.type==='Ingreso')i+=o.amount;if(o.type==='Gasto')g+=o.amount;if(o.type==='Inversión')inv+=o.amount}return{i,g,inv,r:i-g}}
 function portfolioValue(){return totalInvestedCapital()}function investedCost(){return totalInvestedCapital()}
 function showView(v){if(v==='movimientos')showMovimientos();else if(v==='cuentas')showCuentas();else if(v==='inversiones')showInvestments();else render()}
+function accountPortfolioValueAt(acc,day){
+  const cash=accountBalanceAt(acc,day);
+  if(accountKind(acc)!=='investment') return cash;
+  let invested=0;
+  for(const o of db.ops||[]){
+    if(o.date>day)continue;
+    if(o.type==='Inversión'&&o.origin===acc) invested+=Number(o.amount)||0;
+  }
+  return cash+invested;
+}
+function allAccountDailySeries(){
+  const names=db.accounts.slice();
+  const dates=(db.ops||[]).map(o=>o.date).filter(Boolean).sort();
+  const start=dates[0]||new Date().toISOString().slice(0,10), end=new Date().toISOString().slice(0,10);
+  return dateRange(start,end).map(date=>({
+    date,
+    accounts:Object.fromEntries(names.map(a=>[a,accountPortfolioValueAt(a,date)]))
+  }));
+}
 function chartSeries(){
   ensureAccountMeta();
-  const history=(db.accountHistory||[]).slice(-120);
-  const names=normalAccounts();
-  return {history,names};
+  return {history:allAccountDailySeries(),names:db.accounts.slice()};
 }
 function drawWealthChart(){
   const canvas=document.getElementById('wealthChart'); if(!canvas)return;
@@ -429,49 +446,142 @@ function drawInvestmentChart(){
   drawSeriesCanvas(canvas,history,names,true);
 }
 function showInvestments(){
-  ensureAccountMeta();
-  ensureAssetMeta();
-  const costs=investmentCostByAsset();
-  const assets=investmentAssets();
+  ensureAccountMeta(); ensureAssetMeta();
+  const costs=investmentCostByAsset(), assets=investmentAssets();
   const cash=investmentAccounts().reduce((sum,a)=>sum+balance(a),0);
-  const marketTotal=assets.reduce((s,n)=>s+(currentMarketValue(n)||0),0);
-  const costTotal=Object.values(costs).reduce((s,v)=>s+v,0);
+  const marketTotal=assets.reduce((sum,n)=>sum+(currentMarketValue(n)||0),0);
   const known=assets.filter(n=>currentMarketValue(n)!==null);
-  const totalReal=marketTotal+cash;
-  const pnl=known.reduce((s,n)=>s+(currentMarketValue(n)-Number(costs[n]||0)),0);
-  const pnlPct=known.length ? (known.reduce((s,n)=>s+Number(costs[n]||0),0)?pnl/known.reduce((s,n)=>s+Number(costs[n]||0),0)*100:0) : null;
-  document.getElementById('app').innerHTML=`<div class="dashboardHero">
-<div class="sectionTitle"><div><h2 style="font-size:24px;margin:0">Inversiones</h2><div class="small">Activos que mantienes, valor real de mercado y evolución de la cartera</div></div><button class="primary" onclick="addInvestmentAsset()">＋ Añadir activo</button></div>
+  const knownCost=known.reduce((sum,n)=>sum+Number(costs[n]||0),0);
+  const pnl=known.reduce((sum,n)=>sum+(currentMarketValue(n)-Number(costs[n]||0)),0);
+  const pnlPct=knownCost?pnl/knownCost*100:0;
+  const portfolio=marketTotal+cash;
+  const previousSnapshot=(db.assetMarketHistory||[]).slice(-2,-1)[0];
+  const previousTotal=previousSnapshot?Object.values(previousSnapshot.assets||{}).reduce((a,b)=>a+Number(b||0),0)+cash:null;
+  const dayPnl=previousTotal===null?null:portfolio-previousTotal;
+  const colorFor=(i)=>chartPalette(i);
+  const icon=(n)=>{const x=n.toLowerCase();return x.includes('btc')||x.includes('bitcoin')?'₿':x.includes('eth')?'Ξ':x.includes('sol')?'S':x.includes('sp 500')?'S&P':x.includes('nasdaq')?'N':x.includes('gold')?'Au':x.includes('semiconductor')?'◈':'↗'};
+  const esc=(x)=>escQ(String(x));
 
-<div class="statGrid">
-<div class="miniCard"><div class="label">Patrimonio de inversión</div><div class="value">${euro(totalReal)}</div></div>
-<div class="miniCard"><div class="label">Valor de mercado</div><div class="value blue">${euro(marketTotal)}</div></div>
-<div class="miniCard"><div class="label">Efectivo</div><div class="value">${euro(cash)}</div></div>
-<div class="miniCard"><div class="label">P/L conocido</div><div class="value ${pnl>=0?'green':'red'}">${known.length?euro(pnl)+' ('+(pnlPct||0).toFixed(1)+'%)':'—'}</div></div>
-</div>
+  document.getElementById('app').innerHTML=`
+  <style>
+    .trPage{max-width:980px;margin:0 auto;padding-bottom:50px}
+    .trTop{display:flex;justify-content:space-between;align-items:flex-start;margin:12px 0 22px}
+    .trEyebrow{font-size:12px;color:#8fa1b8;margin-bottom:7px}
+    .trTitle{font-size:28px;font-weight:800;letter-spacing:-.5px;margin:0}
+    .trSub{font-size:12px;color:#8fa1b8;margin-top:6px}
+    .trTotal{font-size:39px;font-weight:850;letter-spacing:-1.4px;margin:6px 0}
+    .trGain{font-size:14px;font-weight:750}
+    .trGain.pos{color:#28d17c}.trGain.neg{color:#ff647c}
+    .trActions{display:flex;gap:8px}
+    .trBtn{border:1px solid #29415f;background:#122238;color:#eef5ff;border-radius:11px;padding:10px 14px;font-weight:700;cursor:pointer}
+    .trBtn.primary{background:#2f6df6;border-color:#2f6df6}
+    .trChart{background:#0d1a2b;border:1px solid #203752;border-radius:18px;padding:16px 16px 10px;box-shadow:0 8px 28px rgba(0,0,0,.12)}
+    .trChartHead{display:flex;justify-content:space-between;align-items:center;margin-bottom:4px}
+    .trChartTitle{font-size:13px;font-weight:750}
+    .trPeriod{display:flex;gap:3px;background:#091321;border:1px solid #1c3049;border-radius:10px;padding:3px}
+    .trPeriod button{border:0;background:transparent;color:#8fa1b8;border-radius:7px;padding:6px 8px;font-size:11px;font-weight:700;cursor:pointer}
+    .trPeriod button.active{background:#1a2c45;color:#fff}
+    .trCanvas{height:275px;margin-top:8px}
+    .trCanvas canvas{width:100%;height:100%}
+    .trLegend{display:flex;flex-wrap:wrap;gap:8px 14px;padding:4px 2px 7px;color:#9db0c8;font-size:10px}
+    .trDot{width:7px;height:7px;border-radius:50%;display:inline-block;margin-right:5px}
+    .trSection{margin-top:24px}
+    .trSectionHead{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+    .trSectionHead h3{font-size:17px;margin:0}
+    .trSectionHead span{font-size:11px;color:#8094ad}
+    .trCash{background:#0d1a2b;border:1px solid #203752;border-radius:15px;padding:15px 17px;display:flex;align-items:center;justify-content:space-between;margin-bottom:9px}
+    .trCashLeft{display:flex;align-items:center;gap:12px}
+    .trIcon{width:38px;height:38px;border-radius:50%;background:#182c46;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:800}
+    .trName{font-weight:750;font-size:13px}.trMeta{font-size:10px;color:#8094ad;margin-top:3px}
+    .trAmount{text-align:right;font-weight:800;font-size:14px}
+    .trPositions{background:#0d1a2b;border:1px solid #203752;border-radius:15px;overflow:hidden}
+    .trPosition{display:grid;grid-template-columns:minmax(190px,1.5fr) 110px 125px 120px 145px;gap:10px;align-items:center;padding:14px 17px;border-bottom:1px solid #1b2f48}
+    .trPosition:last-child{border-bottom:0}
+    .trPosition:hover{background:#102039}
+    .trPosMain{display:flex;align-items:center;gap:11px}
+    .trAssetIcon{width:38px;height:38px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:#172b45;font-size:11px;font-weight:850}
+    .trPosName{font-weight:780;font-size:13px}.trPosSmall{font-size:10px;color:#7f94ad;margin-top:3px}
+    .trCell{text-align:right;font-size:12px}.trCell .muted{font-size:9px;color:#7389a4;display:block;margin-bottom:3px}
+    .trMarket{font-weight:820;font-size:13px}
+    .trInput{width:105px;background:#091523;border:1px solid #29415f;color:#fff;border-radius:9px;padding:8px 9px;text-align:right;font-size:11px}
+    .trPnl{font-weight:800}.trPnl.pos{color:#28d17c}.trPnl.neg{color:#ff647c}
+    .trEmpty{padding:28px;text-align:center;color:#8195ad;font-size:12px}
+    .trBottomGrid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px}
+    .trInfo{background:#0d1a2b;border:1px solid #203752;border-radius:15px;padding:15px 17px}
+    .trInfo strong{font-size:18px}.trInfo .label{font-size:10px;color:#8094ad;margin-bottom:6px}
+    .trInfo .small{font-size:10px;color:#8094ad;margin-top:5px}
+    .trRecent{background:#0d1a2b;border:1px solid #203752;border-radius:15px;overflow:hidden}
+    .trRecentRow{display:flex;justify-content:space-between;align-items:center;padding:12px 15px;border-bottom:1px solid #1b2f48}
+    .trRecentRow:last-child{border-bottom:0}
+    @media(max-width:760px){
+      .trPosition{grid-template-columns:1fr 1fr;padding:13px}.trPosition>.trCell:nth-child(2),.trPosition>.trCell:nth-child(3){text-align:right}.trPosition>.trCell:nth-child(4){display:none}.trPosition>.trCell:nth-child(5){grid-column:2}
+      .trBottomGrid{grid-template-columns:1fr}.trTop{display:block}.trActions{margin-top:12px}
+    }
+  </style>
 
-<div class="chartCard"><div class="chartHead"><div><div class="chartTitle">Evolución real de las inversiones</div><div class="chartSub">Una línea por activo según el valor de mercado introducido · línea discontinua = efectivo</div></div></div><div class="chartWrap"><canvas id="investmentChart"></canvas></div><div class="legend">${assets.map((n,i)=>`<span class="legendItem"><span class="legendDot" style="background:${chartPalette(i)}"></span>${n}</span>`).join('')}<span class="legendItem"><span style="display:inline-block;width:14px;border-top:2px dashed #cbd5e1"></span>Efectivo</span></div></div>
+  <div class="trPage">
+    <div class="trTop">
+      <div>
+        <div class="trEyebrow">Cartera</div>
+        <h1 class="trTitle">Inversiones</h1>
+        <div class="trTotal">${euro(portfolio)}</div>
+        <div class="trGain ${pnl>=0?'pos':'neg'}">${known.length?((pnl>=0?'+':'')+euro(pnl)+' · '+(pnl>=0?'+':'')+pnlPct.toFixed(2)+'% desde compra'):'Introduce el valor de mercado de tus posiciones'}</div>
+        ${dayPnl!==null?`<div class="trSub">${dayPnl>=0?'+':''}${euro(dayPnl)} hoy</div>`:''}
+      </div>
+      <div class="trActions"><button class="trBtn" onclick="openOp()">＋ Comprar</button><button class="trBtn primary" onclick="addInvestmentAsset()">＋ Añadir activo</button></div>
+    </div>
 
-<div class="summaryGrid">
-<div class="summaryPanel invest"><div class="summaryPanelHead"><div><h3>📊 Activos</h3><div class="bigMoney">${euro(marketTotal)}</div></div><div class="delta" style="color:#a855f7">Valor de mercado actual</div></div>
-${assets.map((n,i)=>{const mv=currentMarketValue(n),cost=Number(costs[n]||0),gain=mv===null?null:mv-cost;return `<div class="accountRow">
-<div><div class="accountName"><span class="accountBadge">📈</span>${n}</div><div class="accountKind">Capital comprado: ${euro(cost)} · ${mv===null?'valor no introducido':'valor de mercado actual'}</div></div>
-<div style="text-align:right"><div class="accountAmount">${mv===null?'—':euro(mv)}</div><div class="${gain===null?'accountPct':gain>=0?'accountPct green':'accountPct red'}">${gain===null?'':(gain>=0?'+':'')+euro(gain)}</div></div>
-<div><input type="number" min="0" step="0.01" placeholder="Valor €" value="${mv===null?'':mv}" onchange="saveMarketValue('${escQ(n)}',this.value)" style="width:120px;padding:9px"></div>
-</div>`}).join('')||'<div class="empty">Todavía no hay activos. Añade uno o registra una compra de inversión.</div>'}
-</div>
+    <div class="trChart">
+      <div class="trChartHead"><div class="trChartTitle">Evolución de la cartera</div>
+        <div class="trPeriod">
+          <button class="active" onclick="this.parentNode.querySelectorAll('button').forEach(x=>x.classList.remove('active'));this.classList.add('active');drawInvestmentChart()">1D</button>
+          <button onclick="this.parentNode.querySelectorAll('button').forEach(x=>x.classList.remove('active'));this.classList.add('active')">1S</button>
+          <button onclick="this.parentNode.querySelectorAll('button').forEach(x=>x.classList.remove('active'));this.classList.add('active')">1M</button>
+          <button onclick="this.parentNode.querySelectorAll('button').forEach(x=>x.classList.remove('active'));this.classList.add('active')">3M</button>
+          <button onclick="this.parentNode.querySelectorAll('button').forEach(x=>x.classList.remove('active'));this.classList.add('active')">1A</button>
+          <button onclick="this.parentNode.querySelectorAll('button').forEach(x=>x.classList.remove('active'));this.classList.add('active')">Todo</button>
+        </div>
+      </div>
+      <div class="trCanvas"><canvas id="investmentChart"></canvas></div>
+      <div class="trLegend">${assets.map((n,i)=>`<span><i class="trDot" style="background:${colorFor(i)}"></i>${n}</span>`).join('')}<span><i class="trDot" style="background:#8fa1b8"></i>Efectivo</span></div>
+    </div>
 
-<div class="summaryPanel"><div class="summaryPanelHead"><div><h3>💶 Efectivo</h3><div class="bigMoney">${euro(cash)}</div></div><div class="delta">Cuentas de inversión</div></div>
-${investmentAccounts().map(a=>`<div class="accountRow"><div><div class="accountName"><span class="accountBadge">🏦</span>${a}</div><div class="accountKind">Efectivo disponible</div></div><div class="accountAmount">${euro(balance(a))}</div><div class="accountPct">${cash?((balance(a)/cash)*100).toFixed(1):'0.0'}%</div></div>`).join('')||'<div class="empty">No hay cuentas de inversión.</div>'}</div>
-</div>
+    <div class="trSection">
+      <div class="trSectionHead"><h3>Efectivo disponible</h3><span>${investmentAccounts().length} cuenta${investmentAccounts().length===1?'':'s'}</span></div>
+      ${investmentAccounts().map(a=>`<div class="trCash"><div class="trCashLeft"><div class="trIcon">€</div><div><div class="trName">${a}</div><div class="trMeta">Dinero disponible para invertir</div></div></div><div class="trAmount">${euro(balance(a))}</div></div>`).join('')||'<div class="trEmpty">No tienes cuentas de inversión.</div>'}
+    </div>
 
-<div class="section"><div class="sectionTitle"><h2>Activos fijos</h2><button class="secondary" onclick="addInvestmentAsset()">＋ Añadir activo</button></div>
-<div class="ops">${assets.map(n=>`<div class="account"><div><b>${n}</b><div class="small">Coste ${euro(costs[n]||0)} · ${currentMarketValue(n)===null?'sin valor de mercado':'mercado '+euro(currentMarketValue(n))}</div></div><div><button class="secondary" onclick="toggleInvestmentAsset('${escQ(n)}')">${db.assetMeta[n]?.enabled===false?'Activar':'Desactivar'}</button> <button class="danger" onclick="removeInvestmentAsset('${escQ(n)}')">×</button></div></div>`).join('')||'<div class="empty">No hay activos.</div>'}</div></div>
+    <div class="trSection">
+      <div class="trSectionHead"><h3>Tus posiciones</h3><span>${assets.length} activo${assets.length===1?'':'s'}</span></div>
+      <div class="trPositions">
+      ${assets.map((n,i)=>{
+        const mv=currentMarketValue(n),cost=Number(costs[n]||0),gain=mv===null?null:mv-cost,pct=mv===null||!cost?null:gain/cost*100;
+        return `<div class="trPosition">
+          <div class="trPosMain"><div class="trAssetIcon" style="outline:2px solid ${colorFor(i)}">${icon(n)}</div><div><div class="trPosName">${n}</div><div class="trPosSmall">Capital invertido ${euro(cost)}</div></div></div>
+          <div class="trCell"><span class="muted">VALOR MERCADO</span><span class="trMarket">${mv===null?'—':euro(mv)}</span></div>
+          <div class="trCell"><span class="muted">RENDIMIENTO</span><span class="trPnl ${gain===null?'':gain>=0?'pos':'neg'}">${gain===null?'—':(gain>=0?'+':'')+euro(gain)}</span></div>
+          <div class="trCell"><span class="muted">%</span><span class="trPnl ${pct===null?'':pct>=0?'pos':'neg'}">${pct===null?'—':(pct>=0?'+':'')+pct.toFixed(2)+'%'}</span></div>
+          <div class="trCell"><span class="muted">ACTUALIZAR VALOR</span><input class="trInput" type="number" min="0" step="0.01" value="${mv===null?'':mv}" placeholder="€" onchange="saveMarketValue('${esc(n)}',this.value)"></div>
+        </div>`;
+      }).join('')||'<div class="trEmpty">Todavía no tienes activos. Pulsa «Añadir activo» para crear tu primera posición.</div>'}
+      </div>
+    </div>
 
-<div class="section"><div class="sectionTitle"><h2>Compras de inversión</h2><button class="secondary" onclick="openOp()">＋ Nueva compra</button></div><div class="scroll"><table><thead><tr><th>Fecha</th><th>Activo</th><th>Cuenta</th><th>Importe</th><th></th></tr></thead><tbody>${investmentOps().map(o=>`<tr><td>${o.date}</td><td>${o.asset||o.desc}</td><td>${o.origin}</td><td class="yellow">${euro(o.amount)}</td><td><button class="secondary" onclick="editOp('${o.id}')">Editar</button> <button class="danger" onclick="deleteOp('${o.id}')">×</button></td></tr>`).join('')||'<tr><td colspan="5">No hay compras de inversión.</td></tr>'}</tbody></table></div></div>
+    <div class="trBottomGrid">
+      <div class="trInfo"><div class="label">Valor de mercado</div><strong>${euro(marketTotal)}</strong><div class="small">Suma del valor actual de tus posiciones.</div></div>
+      <div class="trInfo"><div class="label">Capital comprado</div><strong>${euro(Object.values(costs).reduce((a,b)=>a+b,0))}</strong><div class="small">Importe registrado en compras de inversión.</div></div>
+    </div>
 
-<div class="notice ok">Introduce el valor de mercado actual de cada activo. La app guarda una fotografía diaria de esos valores para que la gráfica muestre cómo evoluciona realmente cada ETF, acción o cripto. El P/L se calcula frente al capital comprado registrado.</div>
-</div>`;
+    <div class="trSection">
+      <div class="trSectionHead"><h3>Últimas compras</h3><span>Movimientos</span></div>
+      <div class="trRecent">
+      ${investmentOps().slice(0,5).map(o=>`<div class="trRecentRow"><div><div class="trName">${o.asset||o.desc}</div><div class="trMeta">${o.date} · ${o.origin}</div></div><strong>${euro(o.amount)}</strong></div>`).join('')||'<div class="trEmpty">No hay compras registradas.</div>'}
+      </div>
+    </div>
+
+    <div class="notice ok" style="margin-top:18px">El valor de mercado que introduces es el valor total actual de cada posición. La app guarda una fotografía diaria para construir la evolución de la cartera.</div>
+  </div>`;
+
   recordAssetMarketSnapshot();
   drawInvestmentChart();
 }
@@ -615,7 +725,7 @@ function importBackup(ev){
       const p=JSON.parse(r.result), d=p.data||p;
       if(!d.accounts||!d.ops) throw new Error("Formato no válido");
       if(!confirm("Esto sustituirá los datos actuales por la copia. ¿Continuar?")) return;
-      db=d; window.db=db; db.version=29; db.investments=db.investments||[]; db.prices=db.prices||{}; db.assetMeta=db.assetMeta||{}; db.assetMarketHistory=db.assetMarketHistory||[]; save(); render(); closeSettings();
+      db=d; window.db=db; db.version=30; db.investments=db.investments||[]; db.prices=db.prices||{}; db.assetMeta=db.assetMeta||{}; db.assetMarketHistory=db.assetMarketHistory||[]; save(); render(); closeSettings();
       alert("Copia restaurada correctamente.");
     }catch(e){alert("No se pudo importar la copia: "+e.message)}
   };
