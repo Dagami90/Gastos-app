@@ -97,15 +97,15 @@ async function restoreDriveSilently(force=false){
  if(!url||!token)return false;
  driveStatus='restoring';updateSyncBadge();
 
- // Recuperación mediante puente postMessage alojado en Apps Script.
- // Evita CORS/JSONP y funciona aunque GitHub Pages no pueda leer directamente
- // la respuesta de Google. Nunca modifica los datos locales hasta validar la copia.
+ // Manual recovery uses a popup opened directly from the user's tap.
+ // This avoids cross-origin fetch/iframe restrictions on mobile browsers.
  return await new Promise(resolve=>{
-   let done=false, timer=null, frame=null;
+   let done=false,timer=null,popup=null,frame=null;
    const finish=(ok)=>{
-     if(done)return; done=true;
+     if(done)return;done=true;
      window.removeEventListener('message',onMessage);
      if(timer)clearTimeout(timer);
+     try{if(popup&&!popup.closed)popup.close()}catch(e){}
      if(frame)frame.remove();
      if(!ok){driveStatus='error';updateSyncBadge();}
      resolve(ok);
@@ -119,13 +119,24 @@ async function restoreDriveSilently(force=false){
      }else finish(false);
    };
    window.addEventListener('message',onMessage);
-   frame=document.createElement('iframe');
-   frame.style.cssText='position:fixed;width:1px;height:1px;left:-10px;top:-10px;border:0;opacity:0;pointer-events:none';
-   frame.setAttribute('aria-hidden','true');
+
    const origin=location.origin;
-   frame.src=url+'?action=bridge&token='+encodeURIComponent(token)+'&origin='+encodeURIComponent(origin)+'&_='+Date.now();
-   document.body.appendChild(frame);
-   timer=setTimeout(()=>finish(false),20000);
+   const bridge=url+'?action=bridge&token='+encodeURIComponent(token)+'&origin='+encodeURIComponent(origin)+'&_='+Date.now();
+
+   // First try a popup. When this function is called by a button tap,
+   // mobile browsers allow the window to open.
+   try{popup=window.open(bridge,'GastosAppDrive','width=420,height=700');}catch(e){popup=null}
+
+   // Fallback for environments that block popups: hidden iframe.
+   if(!popup){
+     frame=document.createElement('iframe');
+     frame.style.cssText='position:fixed;width:1px;height:1px;left:-10px;top:-10px;border:0;opacity:0;pointer-events:none';
+     frame.setAttribute('aria-hidden','true');
+     frame.src=bridge;
+     document.body.appendChild(frame);
+   }
+
+   timer=setTimeout(()=>finish(false),30000);
  });
 }
 function applyDriveData(x,url,token,force,savedAt){
