@@ -96,46 +96,38 @@ async function restoreDriveSilently(force=false){
  const url=cfg.driveUrl||DRIVE_URL, token=cfg.driveToken||DRIVE_TOKEN;
  if(!url||!token)return false;
  driveStatus='restoring';updateSyncBadge();
-
- // Manual recovery uses a popup opened directly from the user's tap.
- // This avoids cross-origin fetch/iframe restrictions on mobile browsers.
  return await new Promise(resolve=>{
-   let done=false,timer=null,popup=null,frame=null;
+   let done=false,timer=null;
    const finish=(ok)=>{
-     if(done)return;done=true;
-     window.removeEventListener('message',onMessage);
+     if(done)return; done=true;
+     window.removeEventListener('hashchange',onHash);
      if(timer)clearTimeout(timer);
-     try{if(popup&&!popup.closed)popup.close()}catch(e){}
-     if(frame)frame.remove();
      if(!ok){driveStatus='error';updateSyncBadge();}
      resolve(ok);
    };
-   const onMessage=(ev)=>{
-     const d=ev.data;
-     if(!d||d.source!=='GastosAppDrive')return;
-     if(d.ok===true&&d.data){
-       try{finish(applyDriveData(d.data,url,token,force,d.savedAt));}
-       catch(e){finish(false)}
-     }else finish(false);
+   const onHash=()=>{
+     const h=location.hash||'';
+     const m=h.match(/(?:^|#)drive=([^&]+)/);
+     if(!m)return;
+     try{
+       const raw=decodeURIComponent(m[1]);
+       const d=JSON.parse(decodeURIComponent(escape(atob(raw))));
+       if(d&&d.source==='GastosAppDrive'&&d.ok===true&&d.data){
+         // Remove the payload from the address bar before applying it.
+         history.replaceState(null,document.title,location.pathname+location.search);
+         finish(applyDriveData(d.data,url,token,force,d.savedAt));
+       }else finish(false);
+     }catch(e){finish(false);}
    };
-   window.addEventListener('message',onMessage);
-
-   const origin=location.origin;
-   const bridge=url+'?action=bridge&token='+encodeURIComponent(token)+'&origin='+encodeURIComponent(origin)+'&_='+Date.now();
-
-   // First try a popup. When this function is called by a button tap,
-   // mobile browsers allow the window to open.
-   try{popup=window.open(bridge,'GastosAppDrive','width=420,height=700');}catch(e){popup=null}
-
-   // Fallback for environments that block popups: hidden iframe.
+   window.addEventListener('hashchange',onHash);
+   const returnUrl=location.origin+location.pathname;
+   const bridge=url+'?action=bridge&token='+encodeURIComponent(token)+'&returnUrl='+encodeURIComponent(returnUrl)+'&_='+Date.now();
+   // Opened directly by the user's tap, so mobile browsers permit the navigation.
+   const popup=window.open(bridge,'GastosAppDrive','width=420,height=700');
    if(!popup){
-     frame=document.createElement('iframe');
-     frame.style.cssText='position:fixed;width:1px;height:1px;left:-10px;top:-10px;border:0;opacity:0;pointer-events:none';
-     frame.setAttribute('aria-hidden','true');
-     frame.src=bridge;
-     document.body.appendChild(frame);
+     // If popups are blocked, navigate the current tab; Apps Script will return to GastosApp.
+     location.href=bridge;
    }
-
    timer=setTimeout(()=>finish(false),30000);
  });
 }
