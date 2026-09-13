@@ -92,45 +92,58 @@ function updateSyncBadge(){
 }
 
 async function restoreDriveSilently(force=false){
- const cfg=db.settings||{};
- const url=cfg.driveUrl||DRIVE_URL, token=cfg.driveToken||DRIVE_TOKEN;
- if(!url||!token)return false;
- driveStatus='restoring';updateSyncBadge();
- return await new Promise(resolve=>{
-   let done=false,timer=null;
-   const finish=(ok)=>{
-     if(done)return; done=true;
-     window.removeEventListener('hashchange',onHash);
-     if(timer)clearTimeout(timer);
-     if(!ok){driveStatus='error';updateSyncBadge();}
-     resolve(ok);
-   };
-   const onHash=()=>{
-     const h=location.hash||'';
-     const m=h.match(/(?:^|#)drive=([^&]+)/);
-     if(!m)return;
-     try{
-       const raw=decodeURIComponent(m[1]);
-       const d=JSON.parse(decodeURIComponent(escape(atob(raw))));
-       if(d&&d.source==='GastosAppDrive'&&d.ok===true&&d.data){
-         // Remove the payload from the address bar before applying it.
-         history.replaceState(null,document.title,location.pathname+location.search);
-         finish(applyDriveData(d.data,url,token,force,d.savedAt));
-       }else finish(false);
-     }catch(e){finish(false);}
-   };
-   window.addEventListener('hashchange',onHash);
-   const returnUrl=location.origin+location.pathname;
-   const bridge=url+'?action=bridge&token='+encodeURIComponent(token)+'&returnUrl='+encodeURIComponent(returnUrl)+'&_='+Date.now();
-   // Opened directly by the user's tap, so mobile browsers permit the navigation.
-   const popup=window.open(bridge,'GastosAppDrive','width=420,height=700');
-   if(!popup){
-     // If popups are blocked, navigate the current tab; Apps Script will return to GastosApp.
-     location.href=bridge;
-   }
-   timer=setTimeout(()=>finish(false),30000);
- });
+  const cfg=db.settings||{};
+  const url=cfg.driveUrl||DRIVE_URL, token=cfg.driveToken||DRIVE_TOKEN;
+  if(!url||!token)return false;
+  driveStatus='restoring';updateSyncBadge();
+  return await new Promise(resolve=>{
+    let done=false,timer=null;
+    const finish=(ok)=>{
+      if(done)return; done=true;
+      window.removeEventListener('hashchange',onHash);
+      if(timer)clearTimeout(timer);
+      if(!ok){driveStatus='error';updateSyncBadge();}
+      resolve(ok);
+    };
+    const onHash=()=>{
+      const h=location.hash||'';
+      const m=h.match(/(?:^|#)drive=([^&]+)/);
+      if(!m)return;
+      try{
+        const raw=m[1];
+        const bytes=Uint8Array.from(atob(decodeURIComponent(raw)),c=>c.charCodeAt(0));
+        const d=JSON.parse(new TextDecoder().decode(bytes));
+        history.replaceState(null,document.title,location.pathname+location.search);
+        if(d&&d.source==='GastosAppDrive'&&d.ok===true&&d.data){
+          finish(applyDriveData(d.data,url,token,force,d.savedAt));
+        }else finish(false);
+      }catch(e){finish(false);}
+    };
+    window.addEventListener('hashchange',onHash);
+    const returnUrl=location.origin+location.pathname;
+    const bridge=url+'?action=bridge&token='+encodeURIComponent(token)+'&returnUrl='+encodeURIComponent(returnUrl)+'&_='+Date.now();
+    // Same-tab navigation is intentional: Google returns to this exact page with the data in the URL fragment.
+    location.href=bridge;
+    timer=setTimeout(()=>finish(false),30000);
+  });
 }
+
+function consumeDriveHashOnLoad(){
+  const h=location.hash||'';
+  const m=h.match(/(?:^|#)drive=([^&]+)/);
+  if(!m)return false;
+  try{
+    const bytes=Uint8Array.from(atob(decodeURIComponent(m[1])),c=>c.charCodeAt(0));
+    const d=JSON.parse(new TextDecoder().decode(bytes));
+    history.replaceState(null,document.title,location.pathname+location.search);
+    if(d&&d.source==='GastosAppDrive'&&d.ok===true&&d.data){
+      const cfg=db.settings||{};
+      return applyDriveData(d.data,cfg.driveUrl||DRIVE_URL,cfg.driveToken||DRIVE_TOKEN,true,d.savedAt);
+    }
+  }catch(e){}
+  return false;
+}
+
 function applyDriveData(x,url,token,force,savedAt){
  try{
    if(!Array.isArray(x.accounts)||!Array.isArray(x.ops))return false;
@@ -293,7 +306,7 @@ function saveSettings(){
  toast('Sincronización automática activada');
 }
 function restoreDrive(){
- restoreDriveSilently(true).then(ok=>{if(!ok)alert('No se pudo recuperar la copia de Drive. Comprueba la conexión y que la copia de Drive exista.')});
+ restoreDriveSilently(true).then(ok=>{if(!ok)alert('No se pudo recuperar la copia de Drive. Revisa el estado de conexión y la configuración de Drive.')});
 }
 
 function exportData(){const b=new Blob([JSON.stringify(db,null,2)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='GastosApp_copia.json';a.click()}
@@ -301,6 +314,7 @@ function importData(){const i=document.createElement('input');i.type='file';i.ac
 
 (async function boot(){
  render();
+consumeDriveHashOnLoad();
  updateSyncBadge();
  // A new device may have no local data. Try Drive, but NEVER overwrite Drive with an empty local database if recovery fails.
  if(!hadLocalDB && !hasRealData(db)){
